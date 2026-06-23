@@ -1,0 +1,39 @@
+# theapk · ghostprint — Coolify compose
+#
+# Coolify detects this file automatically when you point it at
+#   Git Repository: https://dev.vivaed.com/theapk/ghostprint.git
+#   Branch: main
+#   Build Pack: Docker Compose
+#
+# After Coolify pulls + builds, expose port 8080 publicly and attach
+# the domain (e.g. ghostprint.theapk.com) via Coolify's domain tab.
+# Coolify will auto-issue Let's Encrypt if you set the domain.
+
+services:
+  ghostprint:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: theapk/ghostprint:latest
+    container_name: ghostprint-landing
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Coolify env vars. Stripe is optional in v0.1 — page renders
+      # the "not configured" message gracefully without a key.
+      # When Vee fills in Stripe, set these in Coolify's Environment tab:
+      #   STRIPE_SECRET_KEY = sk_test_xxx (from Vaultwarden "ghostprint-stripe-test")
+      - PORT=8080
+      - HOST=0.0.0.0
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # STL + gcode uploads can be 30-60 MB. Lift the default.
+    # (Coolify reverse-proxies — this only applies if the container is
+    # exposed directly without a proxy in front.)
+    # mem_limit: 512m

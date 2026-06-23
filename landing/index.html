@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>theapk · ghostprint — invisible 3D-print fingerprinting</title>
+<meta name="description" content="Tag an STL with an invisible order ID + printer ID + timestamp. Two-layer watermark, open-source CLI, MIT." />
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a22;
+    --line: #232a36;
+    --text: #e6ebf2;
+    --muted: #8a93a6;
+    --accent: #6cf0c2;
+    --accent2: #7aa7ff;
+    --warn: #ffb347;
+    --bad: #ff6b6b;
+    --ok: #6cf0c2;
+    --radius: 10px;
+    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header {
+    padding: 28px 24px 18px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .brand {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+  .brand b { color: var(--accent); font-weight: 600; }
+  header nav a {
+    margin-left: 18px;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 36px 24px 80px; }
+  h1 {
+    font-size: 38px;
+    line-height: 1.15;
+    margin: 6px 0 12px;
+    letter-spacing: -0.01em;
+  }
+  h1 span { color: var(--accent); }
+  .lede {
+    font-size: 18px;
+    color: var(--muted);
+    margin: 0 0 32px;
+    max-width: 640px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin: 0 0 24px;
+  }
+  .panel h2 {
+    margin: 0 0 14px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  /* drop zone */
+  #drop {
+    border: 2px dashed var(--line);
+    border-radius: var(--radius);
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--muted);
+    transition: border-color .15s, background .15s;
+    cursor: pointer;
+  }
+  #drop.hover {
+    border-color: var(--accent);
+    background: rgba(108,240,194,.05);
+    color: var(--text);
+  }
+  #drop strong { color: var(--text); }
+  #drop small { display: block; margin-top: 6px; font-family: var(--mono); font-size: 12px; }
+  #file-info {
+    margin-top: 14px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    min-height: 18px;
+  }
+  /* form */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 18px;
+    margin: 18px 0 8px;
+  }
+  .field { display: flex; flex-direction: column; }
+  .field label {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .field input {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 14px;
+  }
+  .field input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .field .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .row { display: flex; gap: 12px; margin-top: 18px; align-items: center; flex-wrap: wrap; }
+  button {
+    background: var(--accent);
+    color: #0a1612;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 20px;
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+    transition: opacity .15s;
+  }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--line);
+  }
+  #status {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    margin-left: 8px;
+  }
+  #status.ok { color: var(--ok); }
+  #status.err { color: var(--bad); }
+  #status.busy { color: var(--warn); }
+  /* result */
+  #result {
+    display: none;
+    margin-top: 18px;
+  }
+  #result .dl {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  #result a.dl-btn {
+    background: var(--accent2);
+    color: #06121f;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  #result pre {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    max-height: 200px;
+    overflow: auto;
+    margin: 12px 0 0;
+    color: var(--muted);
+  }
+  /* tier */
+  .tiers {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  @media (max-width: 700px) {
+    .tiers, .grid { grid-template-columns: 1fr; }
+  }
+  .tier {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .tier h3 {
+    margin: 0 0 4px;
+    font-size: 14px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .tier .price {
+    font-family: var(--mono);
+    font-size: 22px;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .tier ul {
+    margin: 0; padding-left: 18px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .tier .cta {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 9px 14px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #0a1612;
+    font-weight: 600;
+    font-size: 14px;
+    border: none;
+    cursor: pointer;
+    font-family: var(--sans);
+  }
+  .tier .cta:disabled { opacity: 0.4; cursor: not-allowed; }
+  .tier .cta.secondary {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--line);
+  }
+  .tier .note {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--muted);
+    font-family: var(--mono);
+    min-height: 16px;
+  }
+  .tier .note.err { color: var(--bad); }
+  .tier .note.ok { color: var(--ok); }
+  .tier.featured { border-color: var(--accent); }
+  /* footer */
+  footer {
+    margin-top: 40px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 13px;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">theapk · <b>ghostprint</b></div>
+  <nav>
+    <a href="#tag">Tag</a>
+    <a href="#how">How</a>
+    <a href="#tiers">Pricing</a>
+    <a href="https://dev.vivaed.com/theapk/ghostprint" rel="noopener">CLI on OneDev</a>
+  </nav>
+</header>
+
+<main>
+  <h1>Tag a 3D print.<br/><span>Invisibly.</span> Forever.</h1>
+  <p class="lede">
+    Pin a printed part to a specific order, printer, and timestamp — without
+    changing the visual, dimensional, or surface finish of the part.
+    Two independent watermark layers, both round-trip verifiable.
+  </p>
+
+  <section id="tag" class="panel">
+    <h2>1 · Drop your master STL</h2>
+    <div id="drop" tabindex="0" role="button" aria-label="Drop or click to choose an STL file">
+      <div><strong>Drop your .stl here</strong> or click to choose</div>
+      <small>≤ 50 MB · ASCII or binary STL</small>
+    </div>
+    <div id="file-info">no file selected</div>
+    <input type="file" id="file" accept=".stl,model/stl,application/sla,application/vnd.ms-pki.stl" style="display:none" />
+
+    <h2 style="margin-top:24px">2 · Fill in the order</h2>
+    <div class="grid">
+      <div class="field">
+        <label for="order_id">order id</label>
+        <input id="order_id" type="text" placeholder="ORDER-2026-0001" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="printer">printer name</label>
+        <input id="printer" type="text" placeholder="bambucco-1" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="job_seq">job sequence #</label>
+        <input id="job_seq" type="number" min="0" placeholder="42" />
+        <div class="hint">leave blank to use current unix timestamp</div>
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <div class="hint">
+          Each field goes into the manifest sidecar so any verifier with the
+          master STL can recover provenance offline.
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="tag-btn" disabled>Tag STL →</button>
+      <span id="status">waiting for file</span>
+    </div>
+
+    <div id="result">
+      <h2>3 · Download</h2>
+      <div id="dl-list" class="dl"></div>
+      <pre id="manifest-pre"></pre>
+    </div>
+  </section>
+
+  <section id="how" class="panel">
+    <h2>How it works</h2>
+    <p style="margin-top:0">
+      <b>L1 — G-code watermark.</b> A 12-byte payload (printer + job +
+      timestamp) is encoded into sub-resolution Z-babysteps at the start
+      of the print, duplicated in a comment block. Survives any
+      post-processor that doesn't strip <code style="font-family:var(--mono)">;</code> comments.
+    </p>
+    <p>
+      <b>L2 — Geometric steganography.</b> Per-vertex perturbation of
+      ±0.005–0.020&nbsp;mm driven by a BLAKE2b hash of the order ID.
+      Below typical 0.04&nbsp;mm nozzle X/Y resolution. Hold the master
+      STL to verify any part, any time.
+    </p>
+    <p>
+      Both layers ship in the same CLI (<code style="font-family:var(--mono)">tag-print.py</code>)
+      and the same web tool. The MIT CLI is the source of truth; the
+      web is a convenience layer for non-technical makers.
+    </p>
+  </section>
+
+  <section id="tiers" class="panel">
+    <h2>Pricing</h2>
+    <div class="tiers">
+      <div class="tier">
+        <h3>CLI</h3>
+        <div class="price">$0</div>
+        <ul>
+          <li>MIT-licensed Python</li>
+          <li>Tag + verify offline</li>
+          <li>No upload, no tracking</li>
+          <li>Two watermark layers</li>
+        </ul>
+        <a class="cta secondary" href="https://dev.vivaed.com/theapk/ghostprint" rel="noopener">Download CLI →</a>
+        <div class="note">pip install theapk-ghostprint (v0.1)</div>
+      </div>
+      <div class="tier featured">
+        <h3>Maker</h3>
+        <div class="price">$9 / mo</div>
+        <ul>
+          <li>Drag-drop web tool (this page)</li>
+          <li>Hold master STLs in your account</li>
+          <li>Verify suspect parts in the browser</li>
+          <li>Up to 500 tags / month</li>
+        </ul>
+        <button class="cta" data-plan="maker" id="cta-maker">Subscribe — $9 / mo</button>
+        <div class="note" id="note-maker"></div>
+      </div>
+      <div class="tier">
+        <h3>Studio</h3>
+        <div class="price">$49 / mo</div>
+        <ul>
+          <li>Unlimited tags</li>
+          <li>Multi-printer fleet dashboard</li>
+          <li>API access + per-order webhook</li>
+          <li>Bulk verify a print run</li>
+        </ul>
+        <button class="cta" data-plan="studio" id="cta-studio">Subscribe — $49 / mo</button>
+        <div class="note" id="note-studio"></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>theapk llc · ghostprint v0.1 · MIT</span>
+    <span>CLI: <a href="https://dev.vivaed.com/theapk/ghostprint" rel="noopener">dev.vivaed.com/theapk/ghostprint</a></span>
+  </footer>
+</main>
+
+<script>
+(() => {
+  const drop = document.getElementById("drop");
+  const fileInput = document.getElementById("file");
+  const fileInfo = document.getElementById("file-info");
+  const orderEl = document.getElementById("order_id");
+  const printerEl = document.getElementById("printer");
+  const jobEl = document.getElementById("job_seq");
+  const btn = document.getElementById("tag-btn");
+  const status = document.getElementById("status");
+  const result = document.getElementById("result");
+  const dlList = document.getElementById("dl-list");
+  const manifestPre = document.getElementById("manifest-pre");
+
+  let currentFile = null;
+
+  function setStatus(text, cls) {
+    status.textContent = text;
+    status.className = cls || "";
+  }
+
+  function refreshBtn() {
+    const ok = currentFile
+      && orderEl.value.trim()
+      && printerEl.value.trim()
+      && currentFile.size <= 50 * 1024 * 1024;
+    btn.disabled = !ok;
+    if (!currentFile) setStatus("waiting for file");
+    else if (currentFile.size > 50 * 1024 * 1024) setStatus("file too large (≤ 50 MB)", "err");
+    else if (!orderEl.value.trim() || !printerEl.value.trim()) setStatus("fill in order id + printer");
+    else setStatus("ready");
+  }
+
+  function setFile(file) {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".stl")) {
+      setStatus("file must be .stl", "err");
+      return;
+    }
+    currentFile = file;
+    fileInfo.textContent = `${file.name} · ${(file.size / 1024).toFixed(1)} KB`;
+    refreshBtn();
+  }
+
+  // Drag-drop
+  ["dragenter","dragover"].forEach(e =>
+    drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add("hover"); }));
+  ["dragleave","drop"].forEach(e =>
+    drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove("hover"); }));
+  drop.addEventListener("drop", ev => {
+    const f = ev.dataTransfer.files[0];
+    if (f) setFile(f);
+  });
+  drop.addEventListener("click", () => fileInput.click());
+  drop.addEventListener("keydown", ev => {
+    if (ev.key === "Enter" || ev.key === " ") fileInput.click();
+  });
+  fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
+  [orderEl, printerEl, jobEl].forEach(el => el.addEventListener("input", refreshBtn));
+
+  function b64ToBlob(b64, mime) {
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  }
+
+  btn.addEventListener("click", async () => {
+    if (!currentFile) return;
+    btn.disabled = true;
+    setStatus("tagging…", "busy");
+    result.style.display = "none";
+    dlList.innerHTML = "";
+    manifestPre.textContent = "";
+
+    const fd = new FormData();
+    fd.append("stl", currentFile);
+    fd.append("order_id", orderEl.value.trim());
+    fd.append("printer", printerEl.value.trim());
+    fd.append("job_seq", jobEl.value.trim() || String(Math.floor(Date.now() / 1000)));
+
+    try {
+      const res = await fetch("/api/tag", { method: "POST", body: fd });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `http ${res.status}`);
+
+      // Wire download links.
+      const dl = (name, b64, mime) => {
+        const url = URL.createObjectURL(b64ToBlob(b64, mime));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        a.className = "dl-btn";
+        a.textContent = `↓ ${name}`;
+        dlList.appendChild(a);
+        return a;
+      };
+      dl(json.download_name_stl, json.tagged_stl_b64, "model/stl");
+      if (json.tagged_gcode_b64) {
+        dl(json.download_name_gcode, json.tagged_gcode_b64, "text/plain");
+      }
+      dl(json.download_name_manifest,
+         btoa(unescape(encodeURIComponent(JSON.stringify(json.manifest, null, 2)))),
+         "application/json");
+
+      manifestPre.textContent = JSON.stringify(json.manifest, null, 2);
+      result.style.display = "block";
+      setStatus("tagged ✓ — " + (json.size_stl / 1024).toFixed(1) + " KB stl", "ok");
+    } catch (err) {
+      setStatus("error: " + err.message, "err");
+    } finally {
+      btn.disabled = false;
+      refreshBtn();
+    }
+  });
+
+  // ---- Stripe checkout buttons (Maker + Studio) ----------------------
+  function setNote(plan, text, cls) {
+    const el = document.getElementById("note-" + plan);
+    if (!el) return;
+    el.textContent = text;
+    el.className = "note" + (cls ? " " + cls : "");
+  }
+
+  async function startCheckout(plan) {
+    const btn = document.getElementById("cta-" + plan);
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    setNote(plan, "creating checkout session…");
+    try {
+      const res = await fetch("/api/checkout?plan=" + encodeURIComponent(plan),
+                              { method: "GET" });
+      const json = await res.json().catch(() => ({}));
+      if (res.status === 503) {
+        // Stripe not configured — show the helpful message inline.
+        const entry = json.vault_entry || "ghostprint-stripe-test";
+        setNote(plan, "Stripe not wired yet (vault: " + entry + "). Coming soon — leave your email on HN launch post for early access.", "err");
+        return;
+      }
+      if (res.status === 502) {
+        setNote(plan, "Stripe rejected: " + (json.error || "?"), "err");
+        return;
+      }
+      if (!res.ok || !json.checkout_url) {
+        setNote(plan, "error: " + (json.error || "http " + res.status), "err");
+        return;
+      }
+      setNote(plan, "redirecting to checkout.stripe.com…", "ok");
+      // Hand off to Stripe.
+      window.location.href = json.checkout_url;
+    } catch (err) {
+      setNote(plan, "network error: " + err.message, "err");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  ["maker", "studio"].forEach(plan => {
+    const b = document.getElementById("cta-" + plan);
+    if (b) b.addEventListener("click", () => startCheckout(plan));
+  });
+})();
+</script>
+</body>
+</html>

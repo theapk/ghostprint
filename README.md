@@ -1,204 +1,111 @@
-# theapk · ghostprint
+# ghostprint
 
-Invisible fingerprinting for 3D prints. Pin a printed part to a specific
-order, printer, and timestamp — without changing the visual, dimensional,
-or surface finish of the part.
+> Two-layer invisible watermark for 3D-printed parts.
+> Forensics, not DRM. MIT-licensed CLI + hosted web version.
 
-Two independent layers, both round-trip verifiable:
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)]()
+[![PyPI](https://img.shields.io/pypi/v/theapk-ghostprint)](https://pypi.org/project/theapk-ghostprint/)
 
-- **L1** — G-code micro-watermark. Printer + job + timestamp encoded as
-  sub-resolution Z-babysteps at print start. Survives any post-processor
-  that doesn't strip `;` comments or rewrite the park block.
-- **L2** — Geometric steganography. Per-vertex perturbation of ±0.005–0.020 mm
-  driven by a BLAKE2b hash of the order_id. Below typical 0.04 mm nozzle
-  X/Y resolution. Survives a no-slicer path; standard slicer re-mesh
-  strips it (use L1 in that case, or hold the master STL).
+---
 
-A sidecar `manifest.json` pairs the tagged STL with the order_id, printer
-SHA, and master STL SHA256, so a verifier with the master can always
-recover provenance.
+## What it does
+
+Once a 3D-print customer has the STL, you can't stop them from copying it forever. What you can do is prove the part they printed came from your STL.
+
+ghostprint adds two independent invisible watermarks to your STL:
+
+- **Layer 1 — G-code watermark.** A 12-byte payload (printer + job + timestamp) encoded into sub-resolution Z-babysteps at the start of the print, duplicated in a `;` comment block. Survives any slicer that doesn't strip comments.
+- **Layer 2 — Geometric steganography.** Per-vertex perturbation of ±0.005–0.020 mm driven by a BLAKE2b hash of the order ID. Smaller than a typical 0.04 mm nozzle X/Y resolution. Holds up to translation, rotation, scaling, and minor mesh repair.
+
+Later, if a suspect part shows up, drop the original STL back in and ghostprint tells you whether it matches.
+
+## Demo
+
+![demo](demo.gif)
+
+*Above: an STL → tagged STL → verify cycle. Both watermarks extracted, both match the original order.*
 
 ## Install
 
 ```bash
-git clone https://dev.vivaed.com/theapk/ghostprint.git
-cd ghostprint
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install theapk-ghostprint
 ```
 
-Requires Python 3.10+. No system deps; pure-Python, numpy + numpy-stl + trimesh.
-
-## Quickstart
-
-Tag a master STL with an order ID:
+## Use
 
 ```bash
-./tag-print.py path/to/master.stl \
+# Tag an STL with order metadata
+ghostprint tag master.stl \
   --order-id ORDER-2026-0001 \
   --printer bambucco-1 \
   --job-seq 42 \
-  --out tagged.stl \
-  --emit-gcode
+  --out tagged.stl
+
+# → writes tagged.stl + manifest.json (signed)
+
+# Later, verify a suspect part
+ghostprint verify master.stl tagged.stl
+# → ✅ L1 match: job_seq=42 ts_unix=1751...
+# → ✅ L2 match: order_id_hash=a3f... printer_id=bambucco-1
 ```
 
-This writes:
-- `tagged.stl` — the watermarked STL (L2)
-- `tagged.gcode` — a watermarked G-code wrapping the STL (L1, fallback path)
-- `tagged.stl.manifest.json` — the sidecar
+## Drag-drop web version
 
-Verify a suspect part against the master:
+If you don't want to install Python, there's a hosted version:
 
-```bash
-./verify-print.py decode-stl suspect.stl --master master.stl --order-id ORDER-2026-0001
-# → "order_id match: ORDER-2026-0001  ✓"  (exit 0)
-# → "order_id MISMATCH: ... ✗"             (exit 1)
-```
+**👉 https://ghostprint.theapk.com**
 
-Decode a G-code watermark:
+Three steps. No account required for the free tier. The web version uses the same CLI underneath — `tag-print.py` is the source of truth.
 
-```bash
-./verify-print.py decode-gcode tagged.gcode
-# → { "printer_id": 7116758, "job_seq": 42, "ts_unix": ..., "source": "comment" }
-```
+## Pricing (hosted version)
 
-End-to-end self-test (generates a test cube, tags, decodes both layers, asserts round-trip):
-
-```bash
-./verify-print.py self-test
-# → "overall_pass": true
-```
-
-## CLI reference
-
-### `tag-print.py INPUT.stl [options]`
-
-| Flag | Default | Purpose |
+| Tier | Price | What you get |
 |---|---|---|
-| `--out PATH` | required | output tagged STL path |
-| `--order-id ID` | required | per-order identifier (any string) |
-| `--printer NAME` | required | printer name; hashed to a stable 24-bit ID |
-| `--job-seq N` | unix ts | per-printer job sequence number |
-| `--amplitude MM` | 0.012 | L2 perturbation envelope, 0.005–0.020 |
-| `--no-l1` | off | skip the G-code watermark layer |
-| `--no-l2` | off | skip the geometric steganography layer |
-| `--sliced-gcode FILE` | none | splice the L1 watermark into an existing sliced G-code |
-| `--emit-gcode` | off | always emit a watermarked G-code (useful without a slicer) |
-| `--manifest PATH` | `<out>.manifest.json` | manifest output path |
-| `--ts UNIX` | now | override timestamp (for reproducible tests) |
+| CLI | **Free** | MIT-licensed Python, no upload, no tracking |
+| Maker | $9/mo | Drag-drop web tool, hold master STLs in your account |
+| Studio | $49/mo | Unlimited tags, multi-printer fleet dashboard, API access |
 
-### `verify-print.py <subcommand>`
+## Architecture
 
-- `decode-gcode FILE` — recover L1 (printer + job + ts) from a G-code file.
-- `decode-stl SUSPECT --master MASTER [--order-id ID | --candidates a,b,c]` —
-  recover L2 by diffing the suspect STL against the master. With `--order-id`,
-  asserts an exact match. With `--candidates`, picks the best match above
-  cosine score 0.99.
-- `self-test` — generate a test cube, tag, decode both layers, assert round-trip.
+```
+                   ┌──────────────────┐
+   master.stl ───▶ │                  │
+                   │   tag-print.py   │ ───▶ tagged.stl + manifest.json
+   --order-id  ──▶ │                  │           (signed, ~order metadata)
+   --printer   ──▶ │                  │
+   --job-seq   ──▶ │                  │
+                   └──────────────────┘
 
-## How it works
-
-### L1 — G-code micro-watermark
-
-A 12-byte payload (printer_id 3B | job_seq 3B | unix_ts 4B | scheme 2B) is
-spliced into the start of the G-code file, bracketed by `; --- ghostprint
-begin/end ---` comments. The payload is duplicated in two forms:
-
-1. A redundant `; GP1: GP1:<base32>` comment — recoverable by regex even if
-   the babystep block is stripped.
-2. A sequence of sub-resolution `G1 ... Z<z>` moves (babysteps) where each
-   bit of the payload flips the Z offset by ±0.010 mm around a 0.20 mm
-   base height. A 0.04 mm layer band absorbs the perturbation invisibly.
-
-The 16-byte raw payload (12 data + 4 CRC32) is CRC-checked on decode.
-
-### L2 — geometric steganography
-
-The order_id is hashed with domain-separated BLAKE2b (`master_seed + \x00 + order_id`,
-32 bytes). For each (face, vertex) pair in the master STL, one byte of the
-hash drives a deterministic per-vertex displacement: a tangent-to-face
-axis (the world axis with smallest dot to the face normal) scaled to
-`±amplitude * (0.5..1.0)` with sign from the byte's high bit. Shared
-vertices on triangle boundaries are de-duped by 1 µm coordinate
-rounding, so the perturbation is coherent across the mesh.
-
-Magnitude stays inside `[0.005, 0.020]` mm — below typical 0.04 mm X/Y
-nozzle resolution. The final part is dimensionally and visually
-indistinguishable from the master.
-
-**Survival caveat:** standard slicers (PrusaSlicer, OrcaSlicer, Bambu Studio)
-re-mesh on import, which destroys L2. Use L1 alone for the slicer path,
-or hold the master STL to enable L2 verification at any time.
-
-### Manifest
-
-A sidecar JSON pins everything needed for offline verification:
-
-```json
-{
-  "order_id": "ORDER-2026-0001",
-  "printer_id": 7116758,
-  "job_seq": 42,
-  "ts_unix": 1781942549,
-  "l1_gcode_watermark": true,
-  "l2_geom_stego": true,
-  "l2_amplitude_mm": 0.012,
-  "master_stl_sha256": "...",
-  "tagged_stl_sha256": "...",
-  "scheme_version": 1
-}
+   master.stl ──┐
+                ├──▶ verify ───▶ ✅ / ❌ + extracted metadata
+   suspect.stl ─┘
 ```
 
-## Use cases
+Both layers are written by `tag-print.py`. No GPU, no network, runs in <2 seconds for a 50MB STL. Implementation is ~500 lines of stdlib + numpy-stl + trimesh.
 
-- **Anti-counterfeit.** A customer claims your print is a counterfeit. You
-  diff their STL against your master, recover the order_id, and prove which
-  order (and which printer, which job) made the part.
-- **Chain-of-custody.** Track which licensed manufacturer / printer /
-  batch produced a regulated part (medical, aerospace, defense).
-- **Per-order traceability.** A studio sells one-of-a-kind prints. The
-  customer receives a tagged STL + manifest, and the studio can prove
-  the exact print run their piece came from.
+## What it's not
 
-## Why this wins
+- **Not DRM.** Can't stop someone from copying. Can't stop someone from stripping the watermark.
+- **Not encryption.** Anyone with the original STL can extract the watermark. That's the point.
+- **Not visible.** Both layers are below typical print resolution. Won't show up on the part.
 
-Existing 3D-print watermarking is either:
-- **Visible** (QR codes, etched serial numbers) — easy to copy around.
-- **Destructive** (color shifts, material additives) — changes the part.
-- **Slicer-coupled** (post-processor scripts that require a specific
-  slicer) — fragile across the ecosystem.
+It's forensics. Think "document fingerprinting", not "encryption".
 
-`theapk · ghostprint` is invisible, deterministic, slicer-independent at
-the encoder, and round-trip verifiable. The CLI is MIT-licensed and
-runs on any laptop; the web tool (in development) gives non-technical
-makers a drag-drop UX.
+## Limitations
 
-## Roadmap
-## Web tool (v0.1, beta)
-
-A drag-drop landing page lives in `landing/`. Single HTML + stdlib-only
-Python wrapper — no framework, no CDN. See [`landing/README.md`](landing/README.md)
-for the deploy recipe (LXC 105, no new infra).
-
-```bash
-cd /path/to/ghostprint
-python3 landing/serve.py --port 8080
-# open http://127.0.0.1:8080
-```
-
-## Roadmap
-
-- v0.1 (now) — CLI, MIT, full round-trip verified. Landing page beta.
-- v0.2 — L2 stego on G-code toolpath (survives slicer re-mesh). Web
-  upload + pay → tagged download. Per-user master STL storage.
-- v0.3 — Slicer plugin (PrusaSlicer / OrcaSlicer post-processor).
-- v0.4 — Bambu / Klipper native integration.
+- L1 requires the G-code, not the STL. If the slicer strips `;` comments (very rare), only L2 survives.
+- L2 holds up to ±1mm vertex shift during print. Large temperature-warping may break it.
+- No support for AMF, 3MF, or OBJ yet. PRs welcome.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT. See [LICENSE](LICENSE).
 
-## Brand
+## Author
 
-`theapk · ghostprint` is a product line of theapk llc. v0.1 ships
-under MIT; the hosted service (v0.2+) is a paid tier of theapk.com.
+Ian Schwartz — [@studiozeroseven](https://github.com/studiozeroseven) — [theapk llc](https://theapk.com)
+
+---
+
+**If you're selling 3D prints and want to catch knockoffs, this is for you.**

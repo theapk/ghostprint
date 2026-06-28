@@ -175,6 +175,56 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
+  /* ---- how-section: 3-card "How this works" ---- */
+  .how-section .how-lede {
+    margin: 0 0 24px;
+    color: var(--muted);
+    font-size: 15px;
+    max-width: 60ch;
+  }
+  .how-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  @media (min-width: 760px) {
+    .how-grid { grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  }
+  .how-step {
+    position: relative;
+    padding: 22px 20px 20px;
+    background: rgba(255,255,255,.025);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .how-step h3 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.25;
+  }
+  .how-step p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .how-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin: 0 0 12px;
+    background: rgba(108,240,194,.12);
+    color: var(--accent);
+    border: 1px solid rgba(108,240,194,.35);
+    border-radius: 50%;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+  }
   /* drop zone */
   #drop {
     border: 2px dashed var(--line);
@@ -435,25 +485,29 @@
 
 <main>
 
-  <section id="how" class="panel">
-    <h2>How it works</h2>
-    <p style="margin-top:0">
-      <b>L1 — G-code watermark.</b> A 12-byte payload (printer + job +
-      timestamp) is encoded into sub-resolution Z-babysteps at the start
-      of the print, duplicated in a comment block. Survives any
-      post-processor that doesn't strip <code style="font-family:var(--mono)">;</code> comments.
-    </p>
-    <p>
-      <b>L2 — Geometric steganography.</b> Per-vertex perturbation of
-      ±0.005–0.020&nbsp;mm driven by a BLAKE2b hash of the order ID.
-      Below typical 0.04&nbsp;mm nozzle X/Y resolution. Hold the master
-      STL to verify any part, any time.
-    </p>
-    <p>
-      Both layers ship in the same CLI (<code style="font-family:var(--mono)">tag-print.py</code>)
-      and the same web tool. The MIT CLI is the source of truth; the
-      web is a convenience layer for non-technical makers.
-    </p>
+  <section id="how" class="panel how-section">
+    <h2>How this works</h2>
+    <p class="how-lede">Three steps. Nobody can see the stamp. The original maker can prove it's theirs later.</p>
+
+    <div class="how-grid">
+      <div class="how-step">
+        <div class="how-num">1</div>
+        <h3>You drop in your file</h3>
+        <p>Any STL, up to 50 MB. We don't change how it looks, prints, or feels in the slicer.</p>
+      </div>
+
+      <div class="how-step">
+        <div class="how-num">2</div>
+        <h3>We stamp two invisible marks</h3>
+        <p>One rides along inside the print instructions. One hides in the shape itself, smaller than your nozzle can see. Both encode the order ID, printer, and time.</p>
+      </div>
+
+      <div class="how-step">
+        <div class="how-num">3</div>
+        <h3>Anyone can check it later</h3>
+        <p>If a knockoff shows up, drop the original STL back in and we'll tell you whether the part matches. Takes a few seconds. Works offline.</p>
+      </div>
+    </div>
   </section>
 
   <section id="tiers" class="panel">

@@ -30,6 +30,61 @@
     line-height: 1.55;
     -webkit-font-smoothing: antialiased;
   }
+  /* ---- hero (full-width image background, text on top) ---- */
+  .hero {
+    position: relative;
+    min-height: 78vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    margin: 0;
+    padding: 0;
+    background:
+      /* dim layer so the image recedes behind the text */
+      linear-gradient(180deg, rgba(15,17,21,.78) 0%, rgba(15,17,21,.55) 45%, rgba(15,17,21,.92) 100%),
+      /* the image itself, centered, scales to fill */
+      url("turbine-hero.jpg") center 40% / cover no-repeat;
+    background-color: var(--bg); /* fallback if image fails */
+  }
+  .hero > header {
+    background: transparent;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+    position: relative;
+    z-index: 2;
+  }
+  .hero .brand,
+  .hero header nav a { color: rgba(230,235,242,.92); }
+  .hero-content {
+    position: relative;
+    z-index: 2;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 56px 24px 96px;
+    width: 100%;
+  }
+  .hero-content h1 {
+    font-size: clamp(34px, 5.4vw, 56px);
+    line-height: 1.08;
+    margin: 0 0 18px;
+    letter-spacing: -0.015em;
+    text-shadow: 0 2px 24px rgba(0,0,0,.55);
+  }
+  .hero-content .lede {
+    font-size: clamp(16px, 1.8vw, 19px);
+    color: rgba(230,235,242,.92);
+    margin: 0 0 28px;
+    max-width: 640px;
+    text-shadow: 0 1px 12px rgba(0,0,0,.5);
+  }
+  /* small screens: tighten the hero so it stays tasteful on phones */
+  @media (max-width: 640px) {
+    .hero { min-height: 64vh; background-position: center 35%; }
+    .hero-content { padding: 36px 22px 64px; }
+  }
+  @media (min-width: 1600px) {
+    /* very wide screens: keep the engine centered, don't tile */
+    .hero { background-size: 100% auto; }
+  }
   a { color: var(--accent2); text-decoration: none; }
   a:hover { text-decoration: underline; }
   header {
@@ -270,6 +325,7 @@
 </style>
 </head>
 <body>
+<section class="hero">
 <header>
   <div class="brand">theapk · <b>ghostprint</b></div>
   <nav>
@@ -280,13 +336,17 @@
   </nav>
 </header>
 
-<main>
+<div class="hero-content">
   <h1>Tag a 3D print.<br/><span>Invisibly.</span> Forever.</h1>
   <p class="lede">
     Pin a printed part to a specific order, printer, and timestamp — without
     changing the visual, dimensional, or surface finish of the part.
     Two independent watermark layers, both round-trip verifiable.
   </p>
+</div>
+</section>
+
+<main>
 
   <section id="tag" class="panel">
     <h2>1 · Drop your master STL</h2>

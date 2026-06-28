@@ -114,6 +114,26 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/api/checkout"):
             self._handle_checkout()
             return
+        # Serve any other static file from the landing dir if it exists
+        # (images, css, future assets). Refuses path traversal.
+        from urllib.parse import unquote
+        rel = unquote(self.path.lstrip("/"))
+        if rel and not rel.startswith(("..", "/")):
+            asset = (LANDING_DIR / rel).resolve()
+            if LANDING_DIR.resolve() in asset.parents and asset.is_file():
+                import mimetypes
+                mime = mimetypes.guess_type(str(asset))[0] or "application/octet-stream"
+                data = asset.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", str(len(data)))
+                # Long cache for static assets; index.html stays no-cache via the / branch above
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            self.send_error(404, "asset not found")
+            return
         # Convenience redirect: any other GET → landing.
         self.send_response(302)
         self.send_header("Location", "/")

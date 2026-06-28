@@ -69,6 +69,14 @@
     letter-spacing: -0.015em;
     text-shadow: 0 2px 24px rgba(0,0,0,.55);
   }
+  .hero-content {
+    position: relative;
+    z-index: 2;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 56px 24px 96px;
+    width: 100%;
+  }
   .hero-content .lede {
     font-size: clamp(16px, 1.8vw, 19px);
     color: rgba(230,235,242,.92);
@@ -76,7 +84,30 @@
     max-width: 640px;
     text-shadow: 0 1px 12px rgba(0,0,0,.5);
   }
-  /* small screens: tighten the hero so it stays tasteful on phones */
+  /* ---- hero split: text on left, uploader panel on right ---- */
+  .hero-split {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+  @media (min-width: 900px) {
+    .hero-split {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 56px;
+    }
+  }
+  .hero-split .hero-text { min-width: 0; }
+  /* uploader panel that lives inside the hero: semi-transparent so the
+     engine image shows through behind it. */
+  .hero-split .panel {
+    background: rgba(22,26,34,.78);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid rgba(255,255,255,.08);
+    box-shadow: 0 8px 40px rgba(0,0,0,.35);
+  }
+  /* small screens: tighter hero */
   @media (max-width: 640px) {
     .hero { min-height: 64vh; background-position: center 35%; }
     .hero-content { padding: 36px 22px 64px; }
@@ -337,18 +368,17 @@
 </header>
 
 <div class="hero-content">
-  <h1>Tag a 3D print.<br/><span>Invisibly.</span> Forever.</h1>
-  <p class="lede">
-    Pin a printed part to a specific order, printer, and timestamp — without
-    changing the visual, dimensional, or surface finish of the part.
-    Two independent watermark layers, both round-trip verifiable.
-  </p>
-</div>
-</section>
+  <div class="hero-split">
+    <div class="hero-text">
+      <h1>Tag a 3D print.<br/><span>Invisibly.</span> Forever.</h1>
+      <p class="lede">
+        Pin a printed part to a specific order, printer, and timestamp — without
+        changing the visual, dimensional, or surface finish of the part.
+        Two independent watermark layers, both round-trip verifiable.
+      </p>
+    </div>
 
-<main>
-
-  <section id="tag" class="panel">
+    <section id="tag" class="panel">
     <h2>1 · Drop your master STL</h2>
     <div id="drop" tabindex="0" role="button" aria-label="Drop or click to choose an STL file">
       <div><strong>Drop your .stl here</strong> or click to choose</div>
@@ -392,6 +422,11 @@
       <pre id="manifest-pre"></pre>
     </div>
   </section>
+  </div><!-- /.hero-split -->
+</div><!-- /.hero-content -->
+</section><!-- /.hero -->
+
+<main>
 
   <section id="how" class="panel">
     <h2>How it works</h2>

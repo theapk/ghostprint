@@ -222,12 +222,15 @@ class Handler(BaseHTTPRequestHandler):
 
         env_var = STRIPE_CFG.get("env_var", "STRIPE_SECRET_KEY")
         secret = os.environ.get(env_var, "").strip()
-        if not secret or not secret.startswith("sk_test_"):
+        # Accept both sk_test_ (test mode) and sk_live_ (live mode). rk_*
+        # (restricted agent keys) are NOT acceptable here because they cannot
+        # create Checkout Sessions — only the full secret key can.
+        if not secret or not (secret.startswith("sk_test_") or secret.startswith("sk_live_")):
             self._json(503, {
                 "error": (f"Stripe not configured: set {env_var} env var with a "
-                          f"sk_test_*** key. Vault entry: "
-                          f"'{STRIPE_CFG.get('vault_secret_entry', 'ghostprint-stripe-test')}'."),
-                "vault_entry": STRIPE_CFG.get("vault_secret_entry", "ghostprint-stripe-test"),
+                          f"sk_test_*** or sk_live_*** key. Vault entry: "
+                          f"'{STRIPE_CFG.get('vault_secret_entry', 'ghostprint-stripe-live')}'."),
+                "vault_entry": STRIPE_CFG.get("vault_secret_entry", "ghostprint-stripe-live"),
                 "env_var": env_var,
                 "plan": plan,
             })

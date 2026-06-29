@@ -28,7 +28,7 @@ pytest tests/
 
 If you find a way to defeat the watermark (forge an L1 stamp, recover the
 master STL from a tagged STL with sub-noise precision, etc.), please email
-security@theapk.com rather than opening a public issue. We'll work with you
+support@theapk.com rather than opening a public issue. We'll work with you
 on coordinated disclosure.
 
 ## Style

@@ -7,3 +7,10 @@ __pycache__/
 .idea/
 .vscode/
 test_fixtures/stl_files/
+
+# Internal — do not publish to public repo
+COOLIFY-DEPLOY.md
+landing/stripe_config.json
+marketing/
+posts/
+runs/

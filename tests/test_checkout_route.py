@@ -132,7 +132,7 @@ def test_checkout_without_key_returns_503(server_no_key):
     code, body = _get_json(f"{server_no_key}/api/checkout?plan=maker")
     assert code == 503, f"expected 503, got {code}: {body}"
     assert "STRIPE_SECRET_KEY" in body["error"]
-    assert body["vault_entry"] == "ghostprint-stripe-test"
+    # vault_entry removed from response — no longer in public repo
     assert body["env_var"] == "STRIPE_SECRET_KEY"
     assert body["plan"] == "maker"
 
@@ -166,17 +166,15 @@ def test_landing_page_has_stripe_buttons_and_handler():
     assert 'class="cta"' in html
 
 
-def test_stripe_config_json_is_valid_and_has_maker_plan():
-    """The config file must parse and define the 'maker' plan with the
-    placeholder price_id we expect Vee to replace."""
+def test_stripe_config_example_json_is_valid_and_has_maker_plan():
+    """The example config file must parse and define the 'maker' plan
+    with placeholder price_ids to replace."""
     import json as _json
-    cfg = _json.loads((REPO / "landing" / "stripe_config.json").read_text())
+    cfg = _json.loads((REPO / "landing" / "stripe_config.example.json").read_text())
     assert "plans" in cfg
     assert "maker" in cfg["plans"]
     assert cfg["plans"]["maker"]["amount_cents"] == 900
     assert cfg["plans"]["maker"]["interval"] == "month"
-    # Price_id is the placeholder until Vee fills it in.
+    # Price_id is the placeholder until filled in.
     assert cfg["plans"]["maker"]["price_id"].startswith("REPLACE_WITH_price_")
-    # Vault entry name documented for Vee.
-    assert cfg["vault_secret_entry"] == "ghostprint-stripe-test"
     assert cfg["env_var"] == "STRIPE_SECRET_KEY"

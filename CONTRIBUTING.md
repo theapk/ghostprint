@@ -6,7 +6,7 @@ the hosted/managed tiers (web tool, paid API) live separately.
 ## Quick rules
 
 - MIT-licensed contributions welcome.
-- Bug fixes: open an issue or PR on OneDev (`dev.vivaed.com/theapk/ghostprint`).
+- Bug fixes: open an issue or PR on GitHub (`github.com/theapk/ghostprint`).
 - New fingerprinting layers, codec changes, or anything touching the watermark
   math: **open an issue first.** We want to discuss the threat model before
   merging. Bad watermark = worse than no watermark.
@@ -17,7 +17,7 @@ the hosted/managed tiers (web tool, paid API) live separately.
 ## Local dev
 
 ```bash
-git clone https://dev.vivaed.com/theapk/ghostprint.git
+git clone https://github.com/theapk/ghostprint.git
 cd ghostprint
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
@@ -43,7 +43,7 @@ on coordinated disclosure.
 ## Theapk product line
 
 Ghostprint is `theapk · ghostprint`. Sub-products (verify, tag, api) may live
-in this repo or in sibling repos on the same OneDev org. When in doubt, ask
+in this repo or in sibling repos on the same GitHub org. When in doubt, ask
 in the issue before starting a large change.
 
 Thanks.

@@ -2,13 +2,12 @@
 """
 theapk · ghostprint — minimal HTTP wrapper around tag-print.py.
 
-Single Python file, stdlib only. Drop on LXC 105 alongside tag-print.py +
-verify-print.py + src/ + requirements.txt (already venv'd there) and run:
+Single Python file, stdlib only. Run alongside tag-print.py +
+verify-print.py + src/ + requirements.txt:
 
-    cd /opt/theapk-ghostprint && source .venv/bin/activate
     python3 landing/serve.py --port 8080 --landing-dir landing/
 
-Then `curl -F stl=@master.stl http://10.1.9.7:8080/api/tag
+Then `curl -F stl=@master.stl http://127.0.0.1:8080/api/tag
      -F order_id=ORDER-2026-0001 -F printer=bambucco-1 -F job_seq=42
      -o tagged.stl` (manifest lands next to it as <out>.manifest.json).
 
@@ -47,14 +46,12 @@ def _load_stripe_config() -> dict:
     if not STRIPE_CONFIG.is_file():
         return {"plans": {}, "currency": "usd",
                 "success_url": "", "cancel_url": "",
-                "vault_secret_entry": "ghostprint-stripe-test",
                 "env_var": "STRIPE_SECRET_KEY"}
     try:
         return json.loads(STRIPE_CONFIG.read_text())
     except (json.JSONDecodeError, OSError):
         return {"plans": {}, "currency": "usd",
                 "success_url": "", "cancel_url": "",
-                "vault_secret_entry": "ghostprint-stripe-test",
                 "env_var": "STRIPE_SECRET_KEY"}
 
 
@@ -248,9 +245,7 @@ class Handler(BaseHTTPRequestHandler):
         if not secret or not (secret.startswith("sk_test_") or secret.startswith("sk_live_")):
             self._json(503, {
                 "error": (f"Stripe not configured: set {env_var} env var with a "
-                          f"sk_test_*** or sk_live_*** key. Vault entry: "
-                          f"'{STRIPE_CFG.get('vault_secret_entry', 'ghostprint-stripe-live')}'."),
-                "vault_entry": STRIPE_CFG.get("vault_secret_entry", "ghostprint-stripe-live"),
+                          f"sk_test_*** or sk_live_*** key."),
                 "env_var": env_var,
                 "plan": plan,
             })
@@ -262,7 +257,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(503, {
                 "error": (f"price_id for plan '{plan}' not set in "
                           f"landing/stripe_config.json (got '{price_id[:16]}...'). "
-                          f"Vee needs to create the product in the Stripe dashboard "
+                          f"Create the product in the Stripe dashboard "
                           f"and paste the price_*** ID."),
                 "plan": plan,
             })

@@ -741,8 +741,7 @@
       const json = await res.json().catch(() => ({}));
       if (res.status === 503) {
         // Stripe not configured — show the helpful message inline.
-        const entry = json.vault_entry || "ghostprint-stripe-test";
-        setNote(plan, "Stripe not wired yet (vault: " + entry + "). Coming soon — leave your email on HN launch post for early access.", "err");
+        setNote(plan, "Stripe not wired yet. Coming soon — leave your email on HN launch post for early access.", "err");
         return;
       }
       if (res.status === 502) {

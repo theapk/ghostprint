@@ -1,0 +1,47 @@
+{
+  "currency": "usd",
+  "success_url": "http://127.0.0.1:8080/?checkout=success&session_id={CHECKOUT_SESSION_ID}",
+  "cancel_url": "http://127.0.0.1:8080/?checkout=cancel",
+  "env_var": "STRIPE_SECRET_KEY",
+  "plans": {
+    "cli": {
+      "display_name": "Ghostprint CLI",
+      "amount_cents": 0,
+      "interval": "month",
+      "price_id": "REPLACE_WITH_price_xxx_FROM_STRIPE_DASHBOARD",
+      "checkout_label": "Get the CLI — free",
+      "features": [
+        "Free CLI for local use",
+        "MIT-licensed, run forever",
+        "L1 (G-code) + L2 (STL stego) watermarks",
+        "No signup, no tracking"
+      ]
+    },
+    "maker": {
+      "display_name": "Ghostprint Maker",
+      "amount_cents": 900,
+      "interval": "month",
+      "price_id": "REPLACE_WITH_price_xxx_FROM_STRIPE_DASHBOARD",
+      "checkout_label": "Subscribe — $9 / mo",
+      "features": [
+        "Drag-drop web tool",
+        "Hold master STLs in your account",
+        "Verify suspect parts in the browser",
+        "Up to 500 tags / month"
+      ]
+    },
+    "studio": {
+      "display_name": "Ghostprint Studio",
+      "amount_cents": 4900,
+      "interval": "month",
+      "price_id": "REPLACE_WITH_price_xxx_FROM_STRIPE_DASHBOARD",
+      "checkout_label": "Subscribe — $49 / mo",
+      "features": [
+        "Unlimited tags",
+        "Multi-printer fleet dashboard",
+        "API access + per-order webhook",
+        "Bulk verify a print run"
+      ]
+    }
+  }
+}

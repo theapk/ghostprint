@@ -1,6 +1,5 @@
 # theapk · ghostprint — landing page
 # Single-stage Python image. Stdlib-only server, numpy/trimesh/numpy-stl only for tag/verify CLI.
-# Coolify will build this from a Git source pointing at dev.vivaed.com/theapk/ghostprint.
 FROM python:3.12-slim
 
 # Avoid pyc files + force stdout buffering for Coolify logs

@@ -1,7 +1,7 @@
 # theapk · ghostprint — Coolify compose
 #
 # Coolify detects this file automatically when you point it at
-#   Git Repository: https://dev.vivaed.com/theapk/ghostprint.git
+#   Git Repository: https://github.com/theapk/ghostprint.git
 #   Branch: main
 #   Build Pack: Docker Compose
 #
@@ -22,8 +22,8 @@ services:
     environment:
       # Coolify env vars. Stripe is optional in v0.1 — page renders
       # the "not configured" message gracefully without a key.
-      # When Vee fills in Stripe, set these in Coolify's Environment tab:
-      #   STRIPE_SECRET_KEY = sk_test_xxx (from Vaultwarden "ghostprint-stripe-test")
+      # When Stripe is configured, set these in Coolify's Environment tab:
+      #   STRIPE_SECRET_KEY = sk_test_xxx (your Stripe test key)
       - PORT=8080
       - HOST=0.0.0.0
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}

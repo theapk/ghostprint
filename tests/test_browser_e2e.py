@@ -12,7 +12,7 @@ What this test simulates:
   - Clicking "Subscribe (Maker)" — page does fetch('/api/checkout?plan=maker').
   - Confirming the 503 path shows the right inline message (Stripe not wired).
 
-Why this matters for Vee:
+Why this matters:
   He can't open a browser on his tablet and click through 4 buttons to verify
   the page works after each deploy. This test IS the click-through.
 
@@ -151,15 +151,12 @@ def test_page_wires_fetch_paths():
 
 def test_page_has_stripe_unavailable_inline_message():
     """The 503 path must show a helpful inline message — not crash, not
-    redirect away, not silently fail. Vee sees this on his tablet when he
+    redirect away, not silently fail. The user sees this on their tablet when they
     clicks Subscribe before the Stripe dashboard is set up."""
     html = INDEX.read_text()
     assert "Stripe not wired yet" in html, (
         "503 path must surface the 'Stripe not wired yet' message")
-    assert "ghostprint-stripe-test" in html, (
-        "503 message must name the Vaultwarden entry so Vee can find it")
-    assert "vault_entry" in html, (
-        "page must read json.vault_entry from the 503 response")
+    # The inline message is sufficient — no vault entry names in public repo.
 
 
 # ---------- 2. landing HTML serves from / -----------------------------------
@@ -304,11 +301,11 @@ def test_browser_upload_wrong_filetype_shows_clean_error(server):
         assert "STL" in body["error"]
 
 
-# ---------- 5. Stripe checkout 503 path (this is what Vee sees on tablet) ---
+# ---------- 5. Stripe checkout 503 path (this is what user sees on tablet) ---
 
 def test_browser_click_maker_subscribe_gets_stripe_503(server):
-    """Vee is on a tablet. He clicks 'Subscribe — Maker'. The page does
-    fetch('/api/checkout?plan=maker'). Until Vee fills in STRIPE_SECRET_KEY,
+    """The user is on a tablet. They click 'Subscribe — Maker'. The page does
+    fetch('/api/checkout?plan=maker'). Until STRIPE_SECRET_KEY is set,
     this returns 503 with a JSON body that names the vault entry.
     The page then shows an inline message — NOT a crash, NOT a redirect."""
     import urllib.request
@@ -322,7 +319,7 @@ def test_browser_click_maker_subscribe_gets_stripe_503(server):
         assert e.code == 503
         body = json.loads(e.read())
     assert body["plan"] == "maker"
-    assert body["vault_entry"] == "ghostprint-stripe-test"
+    assert body["env_var"] == "STRIPE_SECRET_KEY"
     assert "STRIPE_SECRET_KEY" in body["error"]
     # The page reads these fields to build the inline note.
     assert "env_var" in body
@@ -350,7 +347,7 @@ def test_browser_full_happy_path_dry_run(server, monkeypatch):
     """With a fake sk_test_ key + fake price_ id injected, /api/checkout
     will still 503 (because Stripe will reject the request) — but the page
     path itself is exercised. This test catches: server code changes that
-    break the checkout endpoint without us noticing, before Vee wires real
+    break the checkout endpoint without us noticing, before real keys are wired
     Stripe creds.
 
     We monkeypatch STRIPE_SECRET_KEY + stripe_config.json with valid-looking
@@ -358,13 +355,18 @@ def test_browser_full_happy_path_dry_run(server, monkeypatch):
       - 503 because we don't have a real key, OR
       - 502 because Stripe rejected the fake key.
     Either is acceptable; what matters is the page doesn't crash and the
-    vault pointer is shown."""
+    error message is shown."""
     import urllib.request
     import urllib.error
     import json as _json
 
     # Patch stripe_config.json with placeholder price_ids that look real.
+    # If stripe_config.json doesn't exist (e.g. CI), copy from the example.
     cfg_path = REPO / "landing" / "stripe_config.json"
+    example_path = REPO / "landing" / "stripe_config.example.json"
+    if not cfg_path.exists():
+        import shutil
+        shutil.copy(example_path, cfg_path)
     original = cfg_path.read_text()
     patched = original.replace(
         "REPLACE_WITH_price_xxx_FROM_STRIPE_DASHBOARD",
@@ -382,7 +384,7 @@ def test_browser_full_happy_path_dry_run(server, monkeypatch):
         except urllib.error.HTTPError as e:
             assert e.code == 503, f"expected 503, got {e.code}"
             body = _json.loads(e.read())
-        assert body["vault_entry"] == "ghostprint-stripe-test"
+        assert body["env_var"] == "STRIPE_SECRET_KEY"
     finally:
         cfg_path.write_text(original)
 

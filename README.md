@@ -1,9 +1,9 @@
 # ghostprint
 
 > Two-layer invisible watermark for 3D-printed parts.
-> Forensics, not DRM. MIT-licensed CLI + hosted web version.
+> Forensics, not DRM. Free for noncommercial use + hosted web version.
 
-[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20NC-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)]()
 [![PyPI](https://img.shields.io/pypi/v/theapk-ghostprint)](https://pypi.org/project/theapk-ghostprint/)
 
@@ -62,7 +62,7 @@ Three steps. No account required for the free tier. The web version uses the sam
 
 | Tier | Price | What you get |
 |---|---|---|
-| CLI | **Free** | MIT-licensed Python, no upload, no tracking |
+| CLI | **Free** | Python, no upload, no tracking. Free for noncommercial use; commercial use requires a license. |
 | Maker | $9/mo | Drag-drop web tool, hold master STLs in your account |
 | Studio | $49/mo | Unlimited tags, multi-printer fleet dashboard, API access |
 
@@ -100,7 +100,7 @@ It's forensics. Think "document fingerprinting", not "encryption".
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+PolyForm Noncommercial 1.0.0 — free for personal, educational, and research use. Commercial use (selling the software, offering it as a paid service, using it in a commercial print farm) requires a separate license from theapk llc. See [LICENSE](LICENSE) for full terms.
 
 ## Author
 

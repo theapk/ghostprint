@@ -1,21 +1,84 @@
-MIT License
+PolyForm Noncommercial License 1.0.0
 
 Copyright (c) 2026 theapk llc
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This source code is licensed under the PolyForm Noncommercial License
+1.0.0, a copy of which is reproduced below.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+---
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+# PolyForm Noncommercial License 1.0.0
+
+<https://polyformproject.org/licenses/noncommercial/1.0.0>
+
+## Terms
+
+### 1. Purpose
+
+This license gives you permission to use this software for any
+noncommercial purpose. Commercial use requires a separate license
+from the copyright holder.
+
+### 2. Copyright
+
+The copyright holder retains all copyright and related rights to
+the software.
+
+### 3. Grant of Rights
+
+Subject to the terms and conditions of this license, the copyright
+holder grants you a worldwide, royalty-free, non-exclusive,
+non-transferable, non-sublicensable license to:
+
+1. Use, copy, modify, merge, and distribute copies of the software,
+   for noncommercial purposes only.
+
+2. Install and operate the software for your own personal,
+   educational, or research use.
+
+3. Contribute modifications back to the project under the same
+   license.
+
+### 4. Noncommercial Use
+
+"Noncommercial use" means use that is not primarily intended for
+or directed toward commercial advantage or monetary compensation.
+Examples of noncommercial use include:
+
+- Personal projects and hobbies
+- Educational use in schools, universities, and courses
+- Academic research
+- Testing and evaluation
+- Contributing to the open-source project itself
+
+### 5. Commercial Use
+
+"Commercial use" means any use that is primarily intended for or
+directed toward commercial advantage or monetary compensation.
+Examples of commercial use include:
+
+- Selling the software or derivatives thereof
+- Offering the software as a paid or ad-supported service
+- Using the software in a commercial print farm or production
+  environment
+- Embedding the software in a commercial product
+- Using the software internally by a business to generate revenue
+
+For commercial use, contact theapk llc to obtain a commercial
+license: https://theapk.com or security@theapk.com
+
+### 6. Conditions
+
+You must include a copy of this license with every copy of the
+software you distribute. You must include the copyright notice
+above in all copies.
+
+### 7. No Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

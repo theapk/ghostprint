@@ -5,7 +5,7 @@ the hosted/managed tiers (web tool, paid API) live separately.
 
 ## Quick rules
 
-- MIT-licensed contributions welcome.
+- Contributions welcome. The project uses the PolyForm Noncommercial License — contributions are accepted under the same terms.
 - Bug fixes: open an issue or PR on GitHub (`github.com/theapk/ghostprint`).
 - New fingerprinting layers, codec changes, or anything touching the watermark
   math: **open an issue first.** We want to discuss the threat model before

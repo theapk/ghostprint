@@ -81,33 +81,12 @@ def server():
         proc.kill()
 
 
-def _make_binary_stl(size_mm: float = 30.0) -> bytes:
-    """Tiny binary STL — same fixture shape as test_landing_serve.py."""
-    import numpy as np
-    import stl
-    mesh = stl.mesh.Mesh(np.zeros(12, dtype=stl.mesh.Mesh.dtype))
-    h = size_mm / 2.0
-    data = np.array(
-        [
-            [[-h, -h, h], [h, -h, h], [h, h, h]],
-            [[-h, -h, h], [h, h, h], [-h, h, h]],
-            [[-h, -h, -h], [h, h, -h], [h, -h, -h]],
-            [[-h, -h, -h], [-h, h, -h], [h, h, -h]],
-            [[h, -h, -h], [h, h, -h], [h, h, h]],
-            [[h, -h, -h], [h, h, h], [h, -h, h]],
-            [[-h, -h, -h], [-h, h, h], [-h, h, -h]],
-            [[-h, -h, -h], [-h, -h, h], [-h, h, h]],
-            [[-h, h, -h], [h, h, -h], [h, h, h]],
-            [[-h, h, -h], [h, h, h], [-h, h, h]],
-            [[-h, -h, -h], [h, -h, h], [h, -h, -h]],
-            [[-h, -h, -h], [-h, -h, h], [h, -h, h]],
-        ],
-        dtype=np.float32,
-    )
-    mesh.vectors = data
-    buf = io.BytesIO()
-    mesh.save("cube", buf)
-    return buf.getvalue()
+# _make_binary_stl + _multipart_body come from tests/test_landing_serve.py
+# (F-01 refactor: one shared request-shape helper across the e2e files).
+from tests.test_landing_serve import (  # noqa: F401
+    _make_binary_stl,
+    _multipart_body,
+)
 
 
 # ---------- 1. page renders + wires the right fetch paths --------------------
@@ -196,17 +175,8 @@ def test_browser_upload_tag_download_round_trip(server):
 
     # Step 1+2+3: simulate the exact FormData POST the page makes.
     boundary = "----gp-browser-e2e-q5w8e"
-    body = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="order_id"\r\n\r\n{order_id}\r\n'
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="printer"\r\n\r\n{printer}\r\n'
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="job_seq"\r\n\r\n{job_seq}\r\n'
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="stl"; filename="upload.stl"\r\n'
-        f"Content-Type: application/octet-stream\r\n\r\n"
-    ).encode() + stl_bytes + f"\r\n--{boundary}--\r\n".encode()
+    body = _multipart_body(order_id, printer, job_seq=job_seq,
+                           stl=stl_bytes, filename="upload.stl", boundary=boundary)
 
     req = urllib.request.Request(
         f"{server}/api/tag",
@@ -273,19 +243,9 @@ def test_browser_upload_wrong_filetype_shows_clean_error(server):
     import urllib.error
 
     boundary = "----gp-browser-bad-q5w8e"
-    body = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="order_id"\r\n\r\nX\r\n'
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="printer"\r\n\r\np\r\n'
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="job_seq"\r\n\r\n1\r\n'
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="stl"; filename="notes.txt"\r\n'
-        f"Content-Type: text/plain\r\n\r\n"
-        f"this is my notes, not an stl"
-        f"\r\n--{boundary}--\r\n"
-    ).encode()
+    body = _multipart_body("X", "p", job_seq="1",
+                           stl=b"this is my notes, not an stl",
+                           filename="notes.txt", boundary=boundary)
     req = urllib.request.Request(
         f"{server}/api/tag",
         data=body,

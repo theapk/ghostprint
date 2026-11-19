@@ -159,7 +159,13 @@ class Handler(BaseHTTPRequestHandler):
 
         work = Path(tempfile.mkdtemp(prefix="gp-tag-"))
         try:
-            in_stl = work / (stl_name or "input.stl")
+            # F-01: the client-controlled filename must never join a server
+            # path. basename-only + explicit junk-name fallback.
+            import os as _os
+            safe_name = _os.path.basename(stl_name or "").strip() or "input.stl"
+            if safe_name in (".", ".."):
+                safe_name = "input.stl"
+            in_stl = work / safe_name
             in_stl.write_bytes(stl_bytes)
             manifest = _run_tag(in_stl, order_id, printer, job_seq, work)
             tagged = (work / "tagged.stl").read_bytes()

@@ -76,6 +76,33 @@ def _make_binary_stl(size_mm: float = 30.0) -> bytes:
     return buf.getvalue()
 
 
+def _multipart_body(order_id: str, printer: str, *,
+                    job_seq: str | int = "1", stl: bytes = b"",
+                    filename: str = "x.stl",
+                    boundary: str = "----gp-test-boundary-x7y9z") -> bytes:
+    """Build the multipart/form-data body /api/tag expects.
+
+    ONE place for request shape (F-01 refactor): test_landing_serve.py and
+    test_browser_e2e.py both use this so a change to the form contract is
+    made once, not in four hand-rolled builders.
+    """
+    parts: list[bytes] = [
+        f"--{boundary}\r\n".encode(),
+        f'Content-Disposition: form-data; name="order_id"\r\n\r\n{order_id}\r\n'.encode(),
+        f"--{boundary}\r\n".encode(),
+        f'Content-Disposition: form-data; name="printer"\r\n\r\n{printer}\r\n'.encode(),
+        f"--{boundary}\r\n".encode(),
+        f'Content-Disposition: form-data; name="job_seq"\r\n\r\n{job_seq}\r\n'.encode(),
+        f"--{boundary}\r\n".encode(),
+        f'Content-Disposition: form-data; name="stl"; filename="{filename}"\r\n'
+        f"Content-Type: application/octet-stream\r\n\r\n".encode(),
+        stl,
+        b"\r\n",
+        f"--{boundary}--\r\n".encode(),
+    ]
+    return b"".join(parts)
+
+
 @pytest.fixture(scope="module")
 def server():
     port = _free_port()
@@ -130,26 +157,10 @@ def test_tag_e2e_round_trip(server):
     printer = "bambucco-1"
     job_seq = 99
 
-    # multipart/form-data via stdlib
+    # multipart/form-data via stdlib (shared builder)
     boundary = "----gp-test-boundary-x7y9z"
-    parts: list[bytes] = []
-    def add_field(name: str, value: str):
-        parts.append(f"--{boundary}\r\n".encode())
-        parts.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
-        parts.append(value.encode())
-        parts.append(b"\r\n")
-    add_field("order_id", order_id)
-    add_field("printer", printer)
-    add_field("job_seq", str(job_seq))
-    parts.append(f"--{boundary}\r\n".encode())
-    parts.append(
-        b'Content-Disposition: form-data; name="stl"; filename="cube.stl"\r\n'
-        b"Content-Type: application/octet-stream\r\n\r\n"
-    )
-    parts.append(stl_bytes)
-    parts.append(b"\r\n")
-    parts.append(f"--{boundary}--\r\n".encode())
-    body = b"".join(parts)
+    body = _multipart_body(order_id, printer, job_seq=job_seq,
+                           stl=stl_bytes, filename="cube.stl", boundary=boundary)
 
     req = urllib.request.Request(
         f"{server}/api/tag",
@@ -199,19 +210,9 @@ def test_tag_e2e_round_trip(server):
 def test_tag_rejects_non_stl(server):
     import urllib.request
     boundary = "----gp-test-boundary-x7y9z"
-    body = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="order_id"\r\n\r\nX\r\n'
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="printer"\r\n\r\np\r\n'
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="job_seq"\r\n\r\n1\r\n'
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="stl"; filename="x.stl"\r\n'
-        f"Content-Type: text/plain\r\n\r\n"
-        f"this is plain text not an stl"
-        f"\r\n--{boundary}--\r\n"
-    ).encode()
+    body = _multipart_body("X", "p", job_seq="1",
+                           stl=b"this is plain text not an stl",
+                           filename="x.stl", boundary=boundary)
     req = urllib.request.Request(
         f"{server}/api/tag",
         data=body,
@@ -225,3 +226,28 @@ def test_tag_rejects_non_stl(server):
         assert e.code == 400
         body = json.loads(e.read())
         assert "STL" in body["error"]
+
+
+def test_upload_filename_traversal_neutralized(server):
+    """F-01: a client filename must never join a server path.
+
+    Pre-fix, `work / stl_name` accepted '../name' — pathlib keeps the '..'
+    and the OS call resolves it one level ABOVE the temp work dir, i.e.
+    straight into the server's temp root (TMPDIR, inherited by the
+    subprocess). We assert the file appears in NEITHER the repo root (as
+    the audit's eviction-marker described) NOR the temp root. Old code
+    fails this test; basename-only neutralization passes it.
+    """
+    import urllib.request, os, pathlib, tempfile
+    repo_marker = pathlib.Path("/home/bot/Projects/ghostprint/evict-marker.stl")
+    tmp_marker = pathlib.Path(tempfile.gettempdir()) / "evict-marker.stl"
+    for marker in (repo_marker, tmp_marker):
+        if marker.exists(): marker.unlink()
+    body = _multipart_body(order_id="O", printer="p", job_seq="1",
+                           stl=_make_binary_stl(), filename="../evict-marker.stl")
+    req = urllib.request.Request(f"{server}/api/tag", data=body,
+        headers={"Content-Type": "multipart/form-data; boundary=----gp-test-boundary-x7y9z"}, method="POST")
+    with urllib.request.urlopen(req, timeout=60) as r:
+        assert r.status == 200
+    assert not repo_marker.exists(), "traversal filename wrote outside work dir (repo root)"
+    assert not tmp_marker.exists(), "traversal filename wrote outside work dir (temp root)"

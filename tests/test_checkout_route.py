@@ -31,7 +31,6 @@ from urllib import request as urlreq
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-SERVE = REPO / "landing" / "serve.py"
 
 
 def _free_port() -> int:
@@ -54,25 +53,53 @@ def _wait_ready(base: str, proc: subprocess.Popen, deadline: float = 15.0) -> No
     pytest.fail(f"serve.py did not come up. stderr:\n{err.decode()}")
 
 
-def _spawn(env_extra: dict | None = None) -> tuple[str, subprocess.Popen]:
-    """Start serve.py on a free port. env_extra is merged on top of
-    the current os.environ. Strips STRIPE_SECRET_KEY by default so the
-    no-key path is the default test fixture."""
+def _sandbox_landing(with_config: bool = True, config: dict | None = None) -> Path:
+    """Copy landing/ into a temp sandbox (rot-proof whole-dir copy — no
+    per-file list to maintain) + stub tag-print.py (not exercised on the
+    checkout route, but serve.py refuses to boot without it). When
+    with_config (and no explicit config), write a deterministic
+    stripe_config.json with REPLACE_WITH placeholder price_ids so the
+    sandbox is self-sufficient on a CLEAN CHECKOUT (the repo tree itself
+    has no stripe_config.json — it's a deploy-time file)."""
+    import shutil
+    sandbox = Path(tempfile.mkdtemp(prefix="gp-checkout-"))
+    shutil.copytree(REPO / "landing", sandbox / "landing",
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    (sandbox / "tag-print.py").write_text("# stub: not exercised by checkout tests\n")
+    if config is None and with_config:
+        config = {"env_var": "STRIPE_SECRET_KEY",
+                  "plans": {
+                      "maker": {"price_id": "REPLACE_WITH_price_xxx"},
+                      "studio": {"price_id": "REPLACE_WITH_price_xxx"},
+                  }}
+    if config is not None:
+        (sandbox / "landing" / "stripe_config.json").write_text(json.dumps(config))
+    # with_config=False → NO stripe_config.json → fallback, plans = {}
+    return sandbox
+
+
+def _spawn(env_extra: dict | None = None, with_config: bool = True):
+    """Start serve.py from a sandbox copy on a free port. env_extra is
+    merged on top of the current os.environ. Strips STRIPE_SECRET_KEY by
+    default so the no-key path is the default test fixture. Returns
+    (sandbox_dir, base_url, process) — caller owns cleanup."""
+    sandbox = _sandbox_landing(with_config)
     port = _free_port()
     env = dict(os.environ)
     env.pop("STRIPE_SECRET_KEY", None)
     if env_extra:
         env.update(env_extra)
     proc = subprocess.Popen(
-        [sys.executable, str(SERVE), "--host", "127.0.0.1", "--port", str(port)],
-        cwd=str(REPO),
+        [sys.executable, str(sandbox / "landing" / "serve.py"),
+         "--host", "127.0.0.1", "--port", str(port)],
+        cwd=str(sandbox),
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
     base = f"http://127.0.0.1:{port}"
     _wait_ready(base, proc)
-    return base, proc
+    return sandbox, base, proc
 
 
 def _get_json(url: str):
@@ -89,25 +116,27 @@ def _get_json(url: str):
 
 @pytest.fixture(scope="module")
 def server_no_key():
-    base, proc = _spawn()
+    sandbox, base, proc = _spawn()
     yield base
     proc.terminate()
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
         proc.kill()
+    shutil.rmtree(sandbox, ignore_errors=True)
 
 
 @pytest.fixture(scope="module")
 def server_test_key_placeholder():
     """sk_test_*** is set but price_id is still the placeholder text."""
-    base, proc = _spawn({"STRIPE_SECRET_KEY": "sk_test_FAKE_FOR_TEST_ONLY"})
+    sandbox, base, proc = _spawn({"STRIPE_SECRET_KEY": "sk_test_FAKE_FOR_TEST_ONLY"})
     yield base
     proc.terminate()
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
         proc.kill()
+    shutil.rmtree(sandbox, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------
@@ -144,31 +173,17 @@ def test_checkout_studio_without_key_also_returns_503(server_no_key):
     assert body["plan"] == "studio"
 
 
-def _spawn_sandbox(with_config: bool, env_extra: dict):
-    """Run a copy of landing/serve.py from a temp sandbox with a chosen
-    stripe_config presence. serve.py resolves all paths relative to its
-    own file (LANDING_DIR / ROOT), so a copied tree is self-sufficient —
-    this mirrors the existing fixture approach (spawn the real server as
-    a subprocess) with a controlled config state."""
-    import shutil
-    sandbox = Path(tempfile.mkdtemp(prefix="gp-health-"))
-    (sandbox / "landing").mkdir()
-    sandbox_landing = sandbox / "landing"
-    for name in ("serve.py", "multipart.py", "limiter.py"):
-        shutil.copy(REPO / "landing" / name, sandbox_landing / name)
-    (sandbox / "tag-print.py").write_text("# stub: not exercised by /health\n")
-    if with_config:
-        (sandbox_landing / "stripe_config.json").write_text(json.dumps({
-            "env_var": "STRIPE_SECRET_KEY",
-            "plans": {"maker": {"price_id": "price_sandboxok123"}},
-        }))
-    # else: NO stripe_config.json → _load_stripe_config fallback, plans = {}
+def _spawn_sandbox(with_config: bool, env_extra: dict, config: dict | None = None):
+    """Run serve.py from a sandbox copy with a chosen stripe_config
+    presence → returns (sandbox, proc, base). Delegates to
+    _sandbox_landing (whole-dir copy, deterministic config)."""
+    sandbox = _sandbox_landing(with_config, config)
     port = _free_port()
     env = dict(os.environ)
-    env["STRIPE_SECRET_KEY"] = "«redacted:sk_test_…»"  # key IS set, always
+    env["STRIPE_SECRET_KEY"] = "sk_test_FAKE_FOR_TEST_ONLY"  # key IS set, always
     env.update(env_extra)
     proc = subprocess.Popen(
-        [sys.executable, str(sandbox_landing / "serve.py"),
+        [sys.executable, str(sandbox / "landing" / "serve.py"),
          "--host", "127.0.0.1", "--port", str(port)],
         cwd=str(sandbox),
         env=env,
@@ -203,7 +218,10 @@ def test_health_empty_plans_vacuous_true_bug():
 def test_health_configured_when_key_and_valid_price_ids():
     """Positive path: key set + plans whose price_ids are real price_* →
     stripe_configured must be True."""
-    sandbox, proc, base = _spawn_sandbox(with_config=True, env_extra={})
+    sandbox, proc, base = _spawn_sandbox(True, env_extra={}, config={
+        "env_var": "STRIPE_SECRET_KEY",
+        "plans": {"maker": {"price_id": "price_test_sandboxok123"}},
+    })
     try:
         code, body = _get_json(f"{base}/health")
         assert code == 200

@@ -44,3 +44,26 @@ def test_serve_wires_the_shared_rate_singleton():
     assert serve_mod.RATE is RATE
     assert isinstance(RATE, SlidingWindow)
     assert RATE._mx == 10 and RATE._win == 60.0
+
+
+def test_key_cap_sweep_bounded_memory():
+    """Distinct-key growth is bounded: beyond max_keys, expired windows
+    are purged and then the oldest slots are forcibly evicted. Allow()
+    must never crash and the tracked-key count must stay under the cap."""
+    sw = SlidingWindow(max_events=2, window_s=0.05, max_keys=3)
+    for i in range(6):  # 6 distinct keys > cap 3, all allowed
+        assert sw.allow(f"10.0.0.{i}") is True
+    with sw._lk:
+        assert 0 < len(sw._hits) <= 3
+    # eviction never wedges state: the limiter still admits new traffic
+    assert sw.allow("10.0.0.99") is True
+
+    # expired keys are swept preferentially: churn past the cap, then
+    # after one window the old keys are gone; state stays bounded.
+    sw2 = SlidingWindow(max_events=1, window_s=0.05, max_keys=2)
+    assert sw2.allow("a") and sw2.allow("b")
+    assert sw2.allow("c") is True          # 3rd key pushes past cap
+    time.sleep(0.06)                        # windows expire
+    assert sw2.allow("d") is True
+    with sw2._lk:
+        assert len(sw2._hits) <= 2

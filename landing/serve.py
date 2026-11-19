@@ -24,6 +24,7 @@ import base64
 import io
 import json
 import os
+import resource
 import shutil
 import subprocess
 import sys
@@ -112,8 +113,10 @@ STRIPE_CFG = _load_stripe_config()
 def _limits():
     """preexec_fn for the tag-print.py child: cap address space at 1.5 GiB
     and CPU at 60 s so a pathological STL can't eat unbounded memory/CPU
-    on the server. Runs in the child only (after fork, before exec)."""
-    import resource
+    on the server. Runs in the child only (after fork, before exec).
+    resource is imported at module top — a lazy import here would run real
+    import machinery between fork and exec, which CPython documents as
+    deadlock-unsafe under preexec_fn with a threaded server."""
     resource.setrlimit(resource.RLIMIT_AS, (1_500_000_000, 1_500_000_000))
     resource.setrlimit(resource.RLIMIT_CPU, (60, 60))
 
@@ -223,7 +226,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/api/tag":
             self.send_error(404, "use POST /api/tag")
             return
-        # FIRST gate: per-IP rate limit (10 accepted POSTs / 60 s), before
+        # FIRST gate: per-IP rate limit (10 POST attempts / 60 s; rejects
+        # count too), before
         # the chunked/size gates so a flood never reaches body parsing.
         # Keyed on the raw socket peer `self.client_address[0]` only —
         # never X-Forwarded-For / X-Real-IP: those are client-supplied and

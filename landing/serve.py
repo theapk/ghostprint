@@ -34,19 +34,34 @@ import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
-try:
-    from landing.multipart import MultipartParser
-except ImportError:  # script-mode: `python3 landing/serve.py` has landing/ as
-    # sys.path[0] (so 'multipart' resolves to our own landing/multipart.py);
-    # dynamic import because typeshed declares a PyPI 'multipart' we don't use.
-    from importlib import import_module as _import_module
-    MultipartParser = _import_module("multipart").MultipartParser
+import importlib.util
 
 ROOT = Path(__file__).resolve().parent.parent  # ghostprint repo root
 LANDING_DIR = Path(__file__).resolve().parent
 STRIPE_CONFIG = LANDING_DIR / "stripe_config.json"
 MAX_UPLOAD = 52_428_800  # 50 MiB — hard cap on upload payloads
+
+
+def _load_multipart() -> Any:
+    """Load and return the MultipartParser class from landing/multipart.py.
+    Returns Any on purpose: the class is resolved at runtime, by absolute
+    path — immune to sys.path shadowing (a PyPI package named `multipart`
+    must never bind this name; `python -P` / hardened images remove
+    __main__'s sys.path[0] but spec_from_file_location never consults
+    sys.path). Fails clean at boot if the file is missing."""
+    spec = importlib.util.spec_from_file_location(
+        "landing.multipart", LANDING_DIR / "multipart.py")
+    if spec is None or spec.loader is None:
+        sys.exit(f"cannot load {LANDING_DIR / 'multipart.py'}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["landing.multipart"] = mod
+    spec.loader.exec_module(mod)
+    return mod.MultipartParser
+
+
+MultipartParser = _load_multipart()
 
 
 def _load_stripe_config() -> dict:
@@ -92,6 +107,7 @@ def _run_tag(stl_path: Path, order_id: str, printer: str, job_seq: int,
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "ghostprint/0.1"
+    timeout = 60  # StreamRequestHandler honors this: hung client never pins a thread
 
     # ---- static landing page --------------------------------------------
     def do_GET(self):
@@ -150,6 +166,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/api/tag":
             self.send_error(404, "use POST /api/tag")
             return
+        if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
+            self.close_connection = True
+            self._json(411, {"error": "chunked upload not supported; send Content-Length"})
+            return
         # Early gate: refuse oversized bodies before reading a byte. With
         # close_connection the server does not drain + parse the rest of
         # the request on this (now one-shot) connection.
@@ -203,7 +223,8 @@ class Handler(BaseHTTPRequestHandler):
                 "request_id": uuid.uuid4().hex,
             })
         except Exception as e:
-            self._json(500, {"error": f"tag failed: {e}"})
+            self.log_message("tag error: %r", e)  # full detail to logs only
+            self._json(500, {"error": "tag failed — see server logs"})
         finally:
             shutil.rmtree(work, ignore_errors=True)
 

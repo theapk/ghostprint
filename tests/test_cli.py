@@ -110,10 +110,12 @@ def test_cli_verify_flags_first_passthrough_rc2(tmp_path):
 
 
 def test_cli_verify_single_positional_flags_passthrough(tmp_path):
-    """Single-positional + flags: `verify tagged --order-id X` skips the
+    """Single-positional + flags: `verify tagged --master M` skips the
     two-positional branch (rest[1] is a flag) and routes decode-stl
-    TAGGED --order-id X — suspect=tagged, sidecar discovery keyed on
-    tagged, L2 match prints (no master swap)."""
+    TAGGED --master M — suspect=tagged, sidecar discovery keyed on
+    tagged, L2 match prints (no sugar swap). Without --master/manifest,
+    decode-stl's argparse makes it a clean rc2 (--master is required:
+    L2 recovery needs the master geometry)."""
     master = tmp_path / "master.stl"
     _cube_stl(master)
     tagged = tmp_path / "tagged.stl"
@@ -121,10 +123,14 @@ def test_cli_verify_single_positional_flags_passthrough(tmp_path):
                    "--order-id", "ORDER-SP-1", "--printer", "ci-runner",
                    "--job-seq", "5", cwd=tmp_path)
     assert tag.returncode == 0, f"tag stderr={tag.stderr}"
-    verify = _cli_run("verify", str(tagged), "--order-id", "ORDER-SP-1",
-                      cwd=tmp_path)
+    verify = _cli_run("verify", str(tagged), "--master", str(master),
+                      "--order-id", "ORDER-SP-1", cwd=tmp_path)
     assert verify.returncode == 0, f"verify stderr={verify.stderr}"
     assert "✅ L2 match: order_id=ORDER-SP-1" in verify.stdout
+
+    bare = _cli_run("verify", str(tagged), cwd=tmp_path)
+    assert bare.returncode == 2, f"stdout={bare.stdout} stderr={bare.stderr}"
+    assert "Traceback" not in bare.stderr
 
 
 def test_cli_core_shim_reexports_same_objects():

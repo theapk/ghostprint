@@ -137,7 +137,9 @@ def main() -> int:
             with open(args.sliced_gcode, "r", encoding="utf-8", errors="replace") as f:
                 base = f.read()
             watermarked = l1_rewrite_gcode(base, printer_id, job_seq, ts_unix)
-            base_root, _ = os.path.splitext(args.sliced_gcode)
+            # Write the emitted G-code NEXT TO --out, never back onto the
+            # input --sliced-gcode path (which would destroy its input).
+            base_root, _ = os.path.splitext(out_stl)
             gcode_out = base_root + ".gcode"
             with open(gcode_out, "w", encoding="utf-8") as f:
                 f.write(watermarked)

@@ -176,14 +176,20 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
             return
         if self.path == "/health":
+            # plans-aware correctness: `key present AND all plans price_*`.
+            # Empty plans must NOT pass vacuously, so price_ok starts at
+            # bool(plans) — an empty/absent plan set reports unconfigured
+            # even when the key env var is set.
+            env_var = STRIPE_CFG.get("env_var", "STRIPE_SECRET_KEY")
+            price_ok = bool(STRIPE_CFG.get("plans"))
+            if price_ok:
+                price_ok = all(
+                    str(STRIPE_CFG.get("plans", {}).get(p, {}).get("price_id", "")).startswith("price_")
+                    for p in STRIPE_CFG.get("plans", {})
+                )
+            cfg_ok = bool(os.environ.get(env_var)) and price_ok
             self._json(200, {"ok": True, "service": "ghostprint-landing",
-                              "version": "0.1",
-                              "stripe_configured":
-                                bool(os.environ.get(STRIPE_CFG.get("env_var", "STRIPE_SECRET_KEY")))
-                                and all(
-                                    STRIPE_CFG.get("plans", {}).get(p, {}).get("price_id", "").startswith("price_")
-                                    for p in STRIPE_CFG.get("plans", {})
-                                )})
+                             "version": "0.1", "stripe_configured": cfg_ok})
             return
         if self.path.startswith("/api/checkout"):
             self._handle_checkout()
@@ -376,7 +382,6 @@ class Handler(BaseHTTPRequestHandler):
         # Build Checkout Session via Stripe API. POST as form-encoded.
         success = STRIPE_CFG.get("success_url", "") or "https://ghostprint.theapk.com/?checkout=success"
         cancel = STRIPE_CFG.get("cancel_url", "") or "https://ghostprint.theapk.com/?checkout=cancel"
-        success = success.replace("{CHECKOUT_SESSION_ID}", "{CHECKOUT_SESSION_ID}")
         body = urllib.parse.urlencode({
             "mode": "subscription",
             "line_items[0][price]": price_id,

@@ -152,9 +152,15 @@ def main() -> int:
                 base = f.read()
             watermarked = l1_rewrite_gcode(base, printer_id, job_seq, ts_unix)
             # Write the emitted G-code NEXT TO --out, never back onto the
-            # input --sliced-gcode path (which would destroy its input).
+            # input --sliced-gcode path (which would destroy its input),
+            # and never onto --out itself (--out can't hold both meshes
+            # and G-code).
             base_root, _ = os.path.splitext(out_stl)
             gcode_out = base_root + ".gcode"
+            if os.path.abspath(gcode_out) == os.path.abspath(out_stl):
+                # --out literally ends in .gcode: keep both outputs safe
+                # instead of clobbering the just-written tagged STL.
+                gcode_out = base_root + ".tagged.gcode"
             with open(gcode_out, "w", encoding="utf-8") as f:
                 f.write(watermarked)
             print(f"[L1] spliced watermark into {gcode_out}")

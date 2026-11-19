@@ -424,7 +424,7 @@ def l2_verify_match(suspect: "stl_mesh.Mesh", master: "stl_mesh.Mesh",
             # 1e-4 is the correct tolerance.
             observed = (suspect.vectors[f_idx, v_idx].astype(np.float64)
                         - master.vectors[f_idx, v_idx].astype(np.float64))
-            if not np.allclose(observed, predicted, atol=1e-4):
+            if not np.allclose(observed, predicted, atol=1e-4, rtol=0.0):
                 return False
     return True
 

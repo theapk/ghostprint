@@ -44,7 +44,6 @@ from ghostprint_core import (  # noqa: E402
     L2_AMPLITUDE_MAX_MM,
     L2_AMPLITUDE_MIN_MM,
     l1_extract_from_gcode,
-    l2_order_hash,
     l2_recover_deltas,
     l2_recover_order,
     l2_verify_match,
@@ -52,8 +51,9 @@ from ghostprint_core import (  # noqa: E402
 
 
 def _gen_test_cube_stl(path: str, size_mm: float = 20.0) -> int:
-    """Generate a small ASCII test cube STL with 12 triangles. Returns
-    the face count. Uses trimesh so no third-party mesh lib is needed."""
+    """Generate a small test cube STL with a subdivided face set. Returns
+    the face count. Builds a trimesh box, subdivides it, then converts to
+    a numpy-stl Mesh (the encoder imports stl.mesh, not trimesh)."""
     import trimesh
     import numpy as np
     h = size_mm / 2.0
@@ -87,6 +87,31 @@ def cmd_decode_gcode(args) -> int:
     return 0
 
 
+class _ManifestError(Exception):
+    """Manifest unreadable/invalid-JSON/wrong-shape."""
+
+
+def _parse_manifest(path: Path) -> dict:
+    """Schema-guarded manifest parse. Raises _ManifestError so the caller
+    can split fatal (explicit --manifest) from warn-and-continue (an
+    auto-detected sidecar)."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as e:
+        raise _ManifestError(f"manifest {path} unreadable: {e}") from e
+    except json.JSONDecodeError as e:
+        raise _ManifestError(f"manifest {path} is not valid JSON: {e}") from e
+    if not isinstance(data, dict):
+        raise _ManifestError(f"manifest {path} must be a JSON object")
+    amp = data.get("l2_amplitude_mm")
+    if amp is not None and (isinstance(amp, bool) or not isinstance(amp, (int, float))):
+        raise _ManifestError(f"manifest {path}: l2_amplitude_mm must be a number")
+    oid = data.get("order_id")
+    if oid is not None and not isinstance(oid, str):
+        raise _ManifestError(f"manifest {path}: order_id must be a string")
+    return data
+
+
 def cmd_decode_stl(args) -> int:
     if not os.path.exists(args.suspect) or not os.path.exists(args.master):
         print("error: suspect STL (positional) and --master must exist", file=sys.stderr)
@@ -95,6 +120,9 @@ def cmd_decode_stl(args) -> int:
     # --- Manifest resolution ------------------------------------------------
     # The sidecar manifest pairs this suspect STL with the order_id and
     # amplitude used at tag time, so a verifier can skip re-deriving them.
+    # An explicitly-passed --manifest that can't be read/parsed is FATAL
+    # (silent amplitude drift would present as fraud); an auto-detected
+    # sidecar merely warns and falls back to the default amplitude.
     if args.manifest and not os.path.exists(args.manifest):
         print(f"error: manifest not found: {args.manifest}", file=sys.stderr)
         return 2
@@ -102,11 +130,12 @@ def cmd_decode_stl(args) -> int:
     manifest: Optional[dict] = None
     if os.path.exists(manifest_path):
         try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                manifest = json.load(f)
-        except (OSError, json.JSONDecodeError) as e:
-            print(f"warning: could not read manifest {manifest_path}: {e}",
-                  file=sys.stderr)
+            manifest = _parse_manifest(Path(manifest_path))
+        except _ManifestError as e:
+            if args.manifest is not None:
+                print(f"error: {e}", file=sys.stderr)
+                return 2
+            print(f"warning: {e}", file=sys.stderr)
             manifest = None
 
     manifest_amplitude = None

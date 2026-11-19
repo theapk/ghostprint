@@ -10,6 +10,7 @@ Covers:
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -122,3 +123,78 @@ def test_verify_suspect_alias_rejected(tmp_path):
                     "--suspect", str(master), cwd=tmp_path)
     assert r.returncode == 2, f"stdout={r.stdout} stderr={r.stderr}"
     assert "unrecognized arguments" in r.stderr
+
+
+def test_job_seq_boundary_values(tmp_path):
+    """job_seq must be validated up-front: 2**24-1 accepted, 2**24
+    rejected with a range message and NO output artifacts."""
+    master = tmp_path / "m.stl"
+    _box_stl(20.0, 4).save(str(master))
+
+    def _tag(job_seq, out_name):
+        return subprocess.run(
+            [sys.executable, str(REPO_ROOT / "tag-print.py"), str(master),
+             "--out", str(tmp_path / out_name), "--order-id", "O-BND",
+             "--printer", "p", "--job-seq", str(job_seq)],
+            capture_output=True, text=True, cwd=str(tmp_path))
+
+    ok = _tag(16_777_215, "max_ok.stl")
+    assert ok.returncode == 0, f"rc={ok.returncode} stderr={ok.stderr} (2**24-1 must pass)"
+    assert (tmp_path / "max_ok.stl").exists()
+
+    bad = _tag(16_777_216, "over.stl")
+    assert bad.returncode == 2
+    assert "16,777,216" in bad.stderr or "16777216" in bad.stderr, bad.stderr
+    assert not (tmp_path / "over.stl").exists(), "rejected job_seq must not write an STL"
+
+
+def test_verify_wrong_order_id_exit1(tmp_path):
+    """Negative control after the atol loosening: the right amplitude,
+    the WRONG order id must still be a mismatch, not a tolerance pass."""
+    master = tmp_path / "m.stl"
+    _box_stl(30.0, 6).save(str(master))
+    tagged = tmp_path / "tagged.stl"
+    r = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "tag-print.py"), str(master),
+         "--out", str(tagged), "--order-id", "ORDER-RIGHT",
+         "--printer", "p", "--job-seq", "9", "--amplitude", "0.006"],
+        capture_output=True, text=True, cwd=str(tmp_path))
+    assert r.returncode == 0, r.stderr
+    rv = _run_verify("decode-stl", str(tagged), "--master", str(master),
+                     "--order-id", "ORDER-WRONG", "--amplitude", "0.006",
+                     cwd=tmp_path)
+    assert rv.returncode == 1, f"stdout={rv.stdout} stderr={rv.stderr}"
+    assert "MISMATCH" in rv.stderr and "ORDER-WRONG" in rv.stderr
+    assert "✅" not in rv.stdout
+
+
+def test_verify_explicit_malformed_manifest_fatal(tmp_path):
+    """An explicitly-passed --manifest that parses to a non-object (or any
+    wrong-shape JSON) must fail CLEAN (exit 2, error: line, no traceback) —
+    NOT warn-and-fall-back-to-default-amplitude (which would present a
+    correct part as a fraud-looking mismatch)."""
+    master = tmp_path / "m.stl"
+    _box_stl(30.0, 6).save(str(master))
+    tagged = tmp_path / "tagged.stl"
+    r = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "tag-print.py"), str(master),
+         "--out", str(tagged), "--order-id", "ORDER-MM", "--printer", "p",
+         "--job-seq", "3", "--amplitude", "0.006"],
+        capture_output=True, text=True, cwd=str(tmp_path))
+    assert r.returncode == 0, r.stderr
+
+    bad_manifest = tmp_path / "broken.json"
+    bad_manifest.write_text("[1, 2, 3]")  # valid JSON, wrong shape
+    rv = _run_verify("decode-stl", str(tagged), "--master", str(master),
+                     "--manifest", str(bad_manifest), cwd=tmp_path)
+    assert rv.returncode == 2, f"stdout={rv.stdout} stderr={rv.stderr}"
+    assert "error:" in rv.stderr and "Traceback" not in rv.stderr
+
+    # auto-detected sidecar of the same shape only WARNS and continues.
+    (tmp_path / "tagged.stl.manifest.json").write_text("[1, 2, 3]")
+    os.unlink(bad_manifest)
+    rv2 = _run_verify("decode-stl", str(tagged), "--master", str(master),
+                      "--order-id", "ORDER-MM", "--amplitude", "0.006",
+                      cwd=tmp_path)
+    assert rv2.returncode == 0, f"stdout={rv2.stdout} stderr={rv2.stderr}"
+    assert "warning:" in rv2.stderr

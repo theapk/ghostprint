@@ -253,7 +253,8 @@ def cmd_self_test(args) -> int:
         return 0 if result["overall_pass"] else 1
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """Build the verify-print subcommand parser (reused by the ghostprint CLI)."""
     ap = argparse.ArgumentParser(description="verify-print.py — invisible 3D-print fingerprint decoder")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -276,8 +277,12 @@ def main() -> int:
 
     p3 = sub.add_parser("self-test", help="generate test STL, tag, decode, assert round-trip")
     p3.set_defaults(func=cmd_self_test)
+    return ap
 
-    args = ap.parse_args()
+
+def main(argv: Optional[List[str]] = None) -> int:
+    ap = build_parser()
+    args = ap.parse_args(argv)
     return args.func(args)
 
 

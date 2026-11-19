@@ -31,7 +31,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 # Allow `python tag-print.py` to find the sibling src/ package.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
@@ -76,7 +76,8 @@ def _slice_with_orca(stl_path: str, out_dir: str) -> Optional[str]:
     return g if os.path.exists(g) else None
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """Build the tag-print argument parser (reused by the ghostprint CLI)."""
     ap = argparse.ArgumentParser(
         description="tag-print.py — invisible 3D-print fingerprint encoder",
     )
@@ -96,7 +97,12 @@ def main() -> int:
     ap.add_argument("--emit-gcode", action="store_true",
                     help="also write a watermarked G-code wrapping the STL (useful when no slicer is available)")
     ap.add_argument("--ts", type=int, default=None, help="override timestamp (unix seconds)")
-    args = ap.parse_args()
+    return ap
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    ap = build_parser()
+    args = ap.parse_args(argv)
 
     # Validate --job-seq BEFORE anything else touches the STL (fail fast:
     # it must fit the 24-bit L1 wire field, see l1_encode_payload).

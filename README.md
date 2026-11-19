@@ -58,9 +58,10 @@ python tag-print.py master.stl \
 #   slices) or --emit-gcode (standalone watermarked G-code).
 #   `ghostprint tag` takes the same arguments.
 
-# Later, verify a suspect part against the master (suspect first — the
-# sidecar manifest is auto-discovered next to the suspect):
-ghostprint verify tagged.stl master.stl
+# Later, verify a tagged part against its master (master first, tagged
+# second — matching the original `ghostprint verify master.stl tagged.stl`
+# promise; the sidecar manifest is auto-discovered next to the tagged part):
+ghostprint verify master.stl tagged.stl
 # … per-vertex diff report …
 # → ✅ L2 match: order_id=ORDER-2026-0001 printer_id=15777188
 #    printer_id is the 24-bit ID hashed from the printer name, supplied by

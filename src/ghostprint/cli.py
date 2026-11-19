@@ -2,8 +2,8 @@
 
 Verbs (wrapping the repo's tag-print.py / verify-print.py):
     ghostprint tag <tag-print.py arguments>
-    ghostprint verify <suspect.stl> <master.stl> [--order-id ...]
-                      (also accepts decode-stl --master form)
+    ghostprint verify <master.stl> <tagged.stl> [--order-id ...]
+                      (also accepts decode-stl / decode-gcode subverbs)
     ghostprint decode-gcode <FILE.gcode>
     ghostprint self-test
 
@@ -48,10 +48,10 @@ def _load_sibling(module_name: str, path: Path):
 def _verify_argv(rest: List[str]) -> List[str]:
     """Map `ghostprint verify ...` onto verify-print.py's argv.
 
-    Two-positional form (suspect master) is translated — decode-stl spells
-    the master as --master. Everything else passes through unchanged, and
-    a leading verify-print.py subverb (decode-gcode / decode-stl /
-    self-test) is routed as-is.
+    Two-positional form (MASTER TAGGED — the README promise order) is
+    translated — decode-stl spells the master as --master. Everything else
+    passes through unchanged, and a leading verify-print.py subverb
+    (decode-gcode / decode-stl / self-test) is routed as-is.
     """
     if rest and rest[0] in _VERIFY_SUBVERBS:
         return rest
@@ -61,8 +61,11 @@ def _verify_argv(rest: List[str]) -> List[str]:
         # decode-stl's argparse produce its clean required-argument error.
         return ["decode-stl"] + rest
     if len(rest) >= 2 and not rest[1].startswith("-"):
-        # decode-stl spells the master as --master.
-        return ["decode-stl", rest[0], "--master", rest[1]] + rest[2:]
+        # README promise order: MASTER first, TAGGED second; decode-stl
+        # spells the master as --master and takes the TAGGED path as its
+        # suspect positional (so <tagged>.manifest.json auto-discovery
+        # keys on the tagged file).
+        return ["decode-stl", rest[1], "--master", rest[0]] + rest[2:]
     return ["decode-stl"] + rest
 
 
@@ -76,7 +79,9 @@ def build_parser() -> argparse.ArgumentParser:
     tag = sub.add_parser("tag", help="tag an STL: invisible fingerprint encoder (tag-print.py arguments)")
     tag.add_argument("tag_args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
 
-    verify = sub.add_parser("verify", help="verify a tagged STL or G-code (verify-print.py arguments)")
+    verify = sub.add_parser("verify", help="compare a TAGGED part against a "
+                                           "MASTER (arguments: MASTER TAGGED; "
+                                           "or decode-stl/decode-gcode subverbs)")
     verify.add_argument("verify_args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
 
     dg = sub.add_parser("decode-gcode", help="recover the L1 (printer+job+ts) payload from a G-code file")

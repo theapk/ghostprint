@@ -143,8 +143,23 @@ def _run_tag(stl_path: Path, order_id: str, printer: str, job_seq: int,
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "ghostprint/0.1"
+    server_version = "ghostprint"
+    sys_version = ""  # version_string() must not leak the python build
     timeout = 60  # StreamRequestHandler honors this: hung client never pins a thread
+
+    # ---- response hardening (single choke-point: every response, incl.
+    # send_error paths, goes through end_headers) --------------------------
+    def end_headers(self):
+        for k, v in (
+            ("X-Content-Type-Options", "nosniff"),
+            ("X-Frame-Options", "DENY"),
+            ("Referrer-Policy", "strict-origin-when-cross-origin"),
+            ("Content-Security-Policy",
+             "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+             "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"),
+        ):
+            self.send_header(k, v)
+        super().end_headers()
 
     # ---- static landing page --------------------------------------------
     def do_GET(self):

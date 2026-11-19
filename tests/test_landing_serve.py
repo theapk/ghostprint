@@ -251,3 +251,48 @@ def test_upload_filename_traversal_neutralized(server):
         assert r.status == 200
     assert not repo_marker.exists(), "traversal filename wrote outside work dir (repo root)"
     assert not tmp_marker.exists(), "traversal filename wrote outside work dir (temp root)"
+
+
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+}
+_CSP_PARTS = ("default-src 'none'", "frame-ancestors 'none'", "base-uri 'none'")
+
+
+def _assert_response_hardening(headers) -> None:
+    for k, v in _SECURITY_HEADERS.items():
+        assert headers[k] == v, f"missing/mismatched {k}: {headers[k]!r}"
+    csp = headers["Content-Security-Policy"]
+    for part in _CSP_PARTS:
+        assert part in csp, f"CSP missing {part!r}: {csp!r}"
+    server_hdr = headers.get("Server", "")
+    assert "Python" not in server_hdr, f"python version leak: {server_hdr!r}"
+    assert server_hdr.startswith("ghostprint"), server_hdr
+
+
+def test_security_headers_on_landing_page(server):
+    import urllib.request
+    with urllib.request.urlopen(f"{server}/", timeout=5) as r:
+        assert r.status == 200
+        _assert_response_hardening(r.headers)
+
+
+def test_security_headers_on_post_api_tag(server):
+    """POST responses (here the cheap 400 non-STL path — no tag-print run)
+    must carry the identical hardening header set."""
+    import urllib.request, urllib.error
+    boundary = "----gp-test-boundary-x7y9z"
+    body = _multipart_body("X", "p", job_seq="1", stl=b"not an stl",
+                           filename="x.stl", boundary=boundary)
+    req = urllib.request.Request(
+        f"{server}/api/tag", data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=5)
+        pytest.fail("expected 400 for non-STL upload")
+    except urllib.error.HTTPError as e:
+        assert e.code == 400
+        _assert_response_hardening(e.headers)

@@ -411,9 +411,16 @@ def l2_verify_match(suspect: "stl_mesh.Mesh", master: "stl_mesh.Mesh",
             if key not in seen:
                 h_byte = h[(f_idx * 3 + v_idx) % 32]
                 seen[key] = _predict_delta(face, f_idx, v_idx, h_byte, amplitude)
-            predicted = seen[key]
-            observed = suspect.vectors[f_idx, v_idx] - master.vectors[f_idx, v_idx]
-            if not np.allclose(observed, predicted, atol=1e-5):
+            predicted = np.asarray(seen[key], dtype=np.float64)
+            # Compare in float64: STL stores float32, so on large parts the
+            # saved-vertex quantization error (up to ~half-ulp of the
+            # coordinate, ~3e-5 mm at 600 mm) exceeds any tighter tolerance.
+            # The encoder grid is the rounding in _predict_delta —
+            # np.round(delta, 4) — i.e. deltas live on a 1e-4 mm grid, so
+            # 1e-4 is the correct tolerance.
+            observed = (suspect.vectors[f_idx, v_idx].astype(np.float64)
+                        - master.vectors[f_idx, v_idx].astype(np.float64))
+            if not np.allclose(observed, predicted, atol=1e-4):
                 return False
     return True
 

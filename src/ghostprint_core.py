@@ -8,7 +8,9 @@ Two independent layers, both round-trip verifiable:
       .gcode file. Survives anything that does not round-trip Z to mm.
 
   L2. Geometric steganography — order_id hash spread as vertex perturbations
-      of magnitude 0.005-0.020 mm (below typical 0.04 mm nozzle X/Y
+      with an amplitude within the allowed range 0.005-0.020 mm (see
+      L2_AMPLITUDE_MIN_MM / L2_AMPLITUDE_MAX_MM; per-vertex deltas stay at
+      or below the chosen amplitude, below typical 0.04 mm nozzle X/Y
       resolution). Recovered by diffing the suspect STL against the master.
       IMPORTANT: standard slicers re-mesh, so this layer survives only on
       a no-slicer path or against the original master STL. The encoder
@@ -47,7 +49,9 @@ from stl import mesh as stl_mesh
 L1_SCHEME_VERSION = 1
 L1_PREAMBLE = "GP1"
 
-# Layer-2 vertex perturbation envelope. Magnitude in mm.
+# Allowed L2 perturbation amplitude range (min, max), in mm. The encoder
+# rejects an --amplitude outside this window; this is NOT a per-vertex
+# envelope (actual per-vertex deltas stay at or below the chosen amplitude).
 L2_AMPLITUDE_MIN_MM = 0.005
 L2_AMPLITUDE_MAX_MM = 0.020
 

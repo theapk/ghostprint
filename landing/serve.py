@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import argparse
 import base64
-import cgi
+import io
 import json
 import os
 import shutil
@@ -34,6 +34,11 @@ import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+try:
+    from landing.multipart import MultipartParser
+except ImportError:  # script-mode: `python3 landing/serve.py` has landing/ as
+    from multipart import MultipartParser  # type: ignore[import-untyped]
 
 ROOT = Path(__file__).resolve().parent.parent  # ghostprint repo root
 LANDING_DIR = Path(__file__).resolve().parent
@@ -183,31 +188,29 @@ class Handler(BaseHTTPRequestHandler):
         ctype = self.headers.get("Content-Type", "")
         if not ctype.startswith("multipart/form-data"):
             raise ValueError("Content-Type must be multipart/form-data")
-        # FieldStorage reads from rfile using environ. We build a minimal
-        # one. cgi.FieldStorage is deprecated in 3.13 but still works on
-        # 3.10/3.11/3.12. Fallback path: read raw bytes + simple parse.
+        # MultipartParser's cap-read is unconditional (`read(max_bytes + 1)`);
+        # on a socket-backed rfile that deadlocks (client waits for the
+        # response, never sends 52 MiB). Bound the read by Content-Length.
+        raw_cl = self.headers.get("Content-Length", "") or "0"
         try:
-            fs = cgi.FieldStorage(
-                fp=self.rfile,
-                headers=self.headers,
-                environ={"REQUEST_METHOD": "POST",
-                          "CONTENT_TYPE": ctype},
-            )
-            order_id = fs.getfirst("order_id", "").strip()
-            printer = fs.getfirst("printer", "").strip()
-            job_seq_s = fs.getfirst("job_seq", "0").strip()
-            stl_field = fs["stl"] if "stl" in fs else None
-            if not order_id or not printer or stl_field is None:
-                raise ValueError("missing order_id, printer, or stl file")
-            try:
-                job_seq = int(job_seq_s)
-            except ValueError:
-                raise ValueError("job_seq must be an integer")
-            stl_bytes = stl_field.file.read()
-            stl_name = stl_field.filename or "input.stl"
-            return order_id, printer, job_seq, stl_bytes, stl_name
-        except (ValueError, KeyError):
-            raise
+            cl = int(raw_cl)
+        except ValueError:
+            raise ValueError("Content-Length must be an integer")
+        if cl < 0:
+            raise ValueError("Content-Length must be positive")
+        p = MultipartParser(self.headers, io.BytesIO(self.rfile.read(cl)))
+        order_id = p.field("order_id").strip()
+        printer = p.field("printer").strip()
+        job_seq_s = p.field("job_seq", "0").strip()
+        stl_bytes = p.file_bytes()
+        stl_name = p.file_name() or "input.stl"
+        if not order_id or not printer:
+            raise ValueError("missing order_id, printer, or stl file")
+        try:
+            job_seq = int(job_seq_s)
+        except ValueError:
+            raise ValueError("job_seq must be an integer")
+        return order_id, printer, job_seq, stl_bytes, stl_name
 
     def _json(self, code: int, obj: dict):
         data = json.dumps(obj).encode("utf-8")

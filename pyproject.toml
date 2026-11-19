@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "theapk-ghostprint"
+version = "0.1.1"
+description = "Two-layer invisible watermark for 3D-printed parts (forensics, not DRM)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "theapk llc" }]
+dependencies = ["numpy>=1.24", "numpy-stl>=3.0", "trimesh>=4.0"]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[project.scripts]
+ghostprint = "ghostprint.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = ["ghostprint"]

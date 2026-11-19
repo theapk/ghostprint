@@ -9,6 +9,7 @@ Usage:
 
   verify-print.py decode-stl SUSPECT.stl --master MASTER.stl
                        [--order-id ORDER-12345 | --candidates id1,id2,...]
+                       [--manifest MANIFEST.json] [--amplitude A]
       → if --order-id given, asserts the suspect matches that order
         exactly (within encoder rounding, 1e-4 mm). Exits 0 on match,
         1 on mismatch.
@@ -16,6 +17,10 @@ Usage:
         threshold 0.99) or None.
         if neither, prints the per-vertex delta statistics so an
         operator can eyeball the perturbation envelope.
+        A sidecar manifest (default auto-detect: <suspect>.manifest.json)
+        supplies order_id and l2_amplitude_mm (plus printer_id for the
+        success line) when --order-id is not given; --amplitude
+        explicitly overrides the manifest amplitude when both are present.
 
   verify-print.py self-test
       → generates a fresh test cube STL, tags it with a known order_id,
@@ -84,40 +89,80 @@ def cmd_decode_gcode(args) -> int:
 
 def cmd_decode_stl(args) -> int:
     if not os.path.exists(args.suspect) or not os.path.exists(args.master):
-        print("error: both --suspect and --master must exist", file=sys.stderr)
+        print("error: suspect STL (positional) and --master must exist", file=sys.stderr)
         return 2
-    from stl import mesh as stl_mesh
-    suspect = stl_mesh.Mesh.from_file(args.suspect)
-    master = stl_mesh.Mesh.from_file(args.master)
-    deltas = l2_recover_deltas(suspect, master)
-    magnitudes = (deltas ** 2).sum(axis=1) ** 0.5
-    nz = magnitudes[magnitudes > 1e-9]
-    print(json.dumps({
-        "n_vertices": int(deltas.shape[0]),
-        "n_perturbed": int(nz.size),
-        "max_delta_mm": float(magnitudes.max()) if magnitudes.size else 0.0,
-        "mean_delta_mm": float(magnitudes.mean()) if magnitudes.size else 0.0,
-        "amplitude_envelope_mm": [float(L2_AMPLITUDE_MIN_MM), float(L2_AMPLITUDE_MAX_MM)],
-    }, indent=2))
+
+    # --- Manifest resolution ------------------------------------------------
+    # The sidecar manifest pairs this suspect STL with the order_id and
+    # amplitude used at tag time, so a verifier can skip re-deriving them.
+    if args.manifest and not os.path.exists(args.manifest):
+        print(f"error: manifest not found: {args.manifest}", file=sys.stderr)
+        return 2
+    manifest_path = args.manifest or (args.suspect + ".manifest.json")
+    manifest: Optional[dict] = None
+    if os.path.exists(manifest_path):
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"warning: could not read manifest {manifest_path}: {e}",
+                  file=sys.stderr)
+            manifest = None
+
+    manifest_amplitude = None
+    if manifest is not None and manifest.get("l2_amplitude_mm") is not None:
+        manifest_amplitude = float(manifest["l2_amplitude_mm"])
+    # --amplitude explicitly overrides the manifest amplitude when both
+    # are present; otherwise use the manifest value, else the 0.012 default.
+    amplitude = (args.amplitude if args.amplitude is not None
+                 else (manifest_amplitude if manifest_amplitude is not None
+                       else 0.012))
+
+    order_id = args.order_id
+    if order_id is None and manifest is not None:
+        order_id = manifest.get("order_id") or None
+
     candidates: Optional[List[str]] = None
     if args.candidates:
         candidates = [c.strip() for c in args.candidates.split(",") if c.strip()]
-    if args.order_id:
-        ok = l2_verify_match(suspect, master, args.order_id,
-                             amplitude=args.amplitude)
-        if ok:
-            print(f"order_id match: {args.order_id}  ✓")
-            return 0
-        print(f"order_id MISMATCH: {args.order_id}  ✗", file=sys.stderr)
-        return 1
-    if candidates:
-        winner = l2_recover_order(suspect, master, amplitude=args.amplitude,
-                                   candidates=candidates)
-        if winner is None:
-            print("no candidate above score threshold 0.99", file=sys.stderr)
+
+    from stl import mesh as stl_mesh
+    suspect = stl_mesh.Mesh.from_file(args.suspect)
+    master = stl_mesh.Mesh.from_file(args.master)
+    try:
+        deltas = l2_recover_deltas(suspect, master)
+        magnitudes = (deltas ** 2).sum(axis=1) ** 0.5
+        nz = magnitudes[magnitudes > 1e-9]
+        print(json.dumps({
+            "n_vertices": int(deltas.shape[0]),
+            "n_perturbed": int(nz.size),
+            "max_delta_mm": float(magnitudes.max()) if magnitudes.size else 0.0,
+            "mean_delta_mm": float(magnitudes.mean()) if magnitudes.size else 0.0,
+            "amplitude_envelope_mm": [float(L2_AMPLITUDE_MIN_MM), float(L2_AMPLITUDE_MAX_MM)],
+        }, indent=2))
+        if order_id:
+            ok = l2_verify_match(suspect, master, order_id, amplitude=amplitude)
+            if ok:
+                line = f"✅ L2 match: order_id={order_id}"
+                if manifest is not None and manifest.get("printer_id") is not None:
+                    line += f" printer_id={manifest['printer_id']}"
+                print(line)
+                return 0
+            print(f"order_id MISMATCH: {order_id}  ✗", file=sys.stderr)
             return 1
-        print(f"best candidate: {winner}")
-        return 0
+        if candidates:
+            winner = l2_recover_order(suspect, master, amplitude=amplitude,
+                                       candidates=candidates)
+            if winner is None:
+                print("no candidate above score threshold 0.99", file=sys.stderr)
+                return 1
+            print(f"best candidate: {winner}")
+            return 0
+    except ValueError as e:
+        # Shape mismatch (suspect topology differs from the master) and any
+        # other diff error: clean one-line failure, no traceback.
+        print(f"FAIL: {e}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -188,15 +233,16 @@ def main() -> int:
     p1.set_defaults(func=cmd_decode_gcode)
 
     p2 = sub.add_parser("decode-stl", help="recover L2 (order_id) by diffing STL against master")
-    p2.add_argument("suspect", help="path to suspect STL (use '-' for the master arg name: --suspect)")
+    p2.add_argument("suspect", help="path to the suspect STL to check")
     p2.add_argument("--master", required=True, help="path to master STL")
     p2.add_argument("--order-id", default=None, help="assert this order_id is encoded in the suspect")
     p2.add_argument("--candidates", default=None, help="comma-separated candidate order_ids to test")
-    p2.add_argument("--amplitude", type=float, default=0.012)
-    # Re-key 'suspect' to be after subcommand: argparse quirk — we already
-    # made the positional. Add --suspect as alias so usage examples are
-    # unambiguous.
-    p2.add_argument("--suspect", dest="suspect", help=argparse.SUPPRESS)
+    p2.add_argument("--manifest", default=None,
+                    help="sidecar manifest JSON from tag-print "
+                         "(default: auto-detect <suspect>.manifest.json)")
+    p2.add_argument("--amplitude", type=float, default=None,
+                    help="L2 amplitude in mm; when given it overrides the "
+                         "manifest value (default: manifest, else 0.012)")
     p2.set_defaults(func=cmd_decode_stl)
 
     p3 = sub.add_parser("self-test", help="generate test STL, tag, decode, assert round-trip")

@@ -21,6 +21,7 @@ import trimesh
 from stl import mesh as stl_mesh
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+VERIFY_PRINT = REPO_ROOT / "verify-print.py"
 sys.path.insert(0, str(REPO_ROOT / "src"))
 from ghostprint_core import (  # noqa: E402
     l2_perturb_vertices,
@@ -58,3 +59,66 @@ def test_big_part_round_trip_600mm(tmp_path):
 
 def test_big_part_round_trip_1000mm(tmp_path):
     _big_part_round_trip(tmp_path, 1000.0, 20)
+
+
+# --- CLI-level tests (verify-print.py) --------------------------------------
+
+def _run_verify(*argv, cwd):
+    """Run verify-print.py with the venv's python; return CompletedProcess."""
+    return subprocess.run(
+        [sys.executable, str(VERIFY_PRINT), *argv],
+        capture_output=True, text=True, cwd=str(cwd),
+    )
+
+
+def test_verify_manifest_amplitude_exit0(tmp_path):
+    """Tag at amplitude 0.006, then verify with --manifest and no
+    --order-id / --amplitude: manifest supplies both, exits 0."""
+    master = tmp_path / "master.stl"
+    _box_stl(30.0, 6).save(str(master))
+    tagged = tmp_path / "tagged.stl"
+    r = subprocess.run(
+        [sys.executable,
+         str(REPO_ROOT / "tag-print.py"),
+         str(master), "--out", str(tagged), "--order-id", "ORDER-MAN-1",
+         "--printer", "bambu-werk", "--job-seq", "5",
+         "--amplitude", "0.006"],
+        capture_output=True, text=True, cwd=str(tmp_path),
+    )
+    assert r.returncode == 0, f"tag-print failed: {r.stderr}"
+    manifest = tmp_path / "tagged.stl.manifest.json"
+    assert manifest.exists()
+    assert '"l2_amplitude_mm": 0.006' in manifest.read_text()
+
+    r2 = _run_verify("decode-stl", str(tagged), "--master", str(master),
+                     "--manifest", str(manifest), cwd=tmp_path)
+    assert r2.returncode == 0, (
+        f"manifest-driven verify failed: stdout={r2.stdout} stderr={r2.stderr}"
+    )
+    assert "✅ L2 match: order_id=ORDER-MAN-1" in r2.stdout
+    assert "printer_id=" in r2.stdout
+
+
+def test_verify_shape_mismatch_clean_error(tmp_path):
+    """Suspect/master with different topology -> exit 1, one-line FAIL,
+    no traceback."""
+    master_small = tmp_path / "small.stl"
+    _box_stl(20.0, 4).save(str(master_small))
+    master_other = tmp_path / "other.stl"   # different topology (more faces)
+    _box_stl(20.0, 6).save(str(master_other))
+    r = _run_verify("decode-stl", str(master_other), "--master",
+                    str(master_small), cwd=tmp_path)
+    assert r.returncode == 1, f"stdout={r.stdout} stderr={r.stderr}"
+    assert "FAIL:" in r.stderr
+    assert "Traceback" not in r.stderr
+    assert "Traceback" not in r.stdout
+
+
+def test_verify_suspect_alias_rejected(tmp_path):
+    """The unusable --suspect alias was removed: argparse must reject it."""
+    master = tmp_path / "m.stl"
+    _box_stl(20.0, 4).save(str(master))
+    r = _run_verify("decode-stl", str(master), "--master", str(master),
+                    "--suspect", str(master), cwd=tmp_path)
+    assert r.returncode == 2, f"stdout={r.stdout} stderr={r.stderr}"
+    assert "unrecognized arguments" in r.stderr

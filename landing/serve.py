@@ -38,11 +38,15 @@ from pathlib import Path
 try:
     from landing.multipart import MultipartParser
 except ImportError:  # script-mode: `python3 landing/serve.py` has landing/ as
-    from multipart import MultipartParser  # type: ignore[import-untyped]
+    # sys.path[0] (so 'multipart' resolves to our own landing/multipart.py);
+    # dynamic import because typeshed declares a PyPI 'multipart' we don't use.
+    from importlib import import_module as _import_module
+    MultipartParser = _import_module("multipart").MultipartParser
 
 ROOT = Path(__file__).resolve().parent.parent  # ghostprint repo root
 LANDING_DIR = Path(__file__).resolve().parent
 STRIPE_CONFIG = LANDING_DIR / "stripe_config.json"
+MAX_UPLOAD = 52_428_800  # 50 MiB — hard cap on upload payloads
 
 
 def _load_stripe_config() -> dict:
@@ -146,9 +150,23 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/api/tag":
             self.send_error(404, "use POST /api/tag")
             return
+        # Early gate: refuse oversized bodies before reading a byte. With
+        # close_connection the server does not drain + parse the rest of
+        # the request on this (now one-shot) connection.
+        cl = self.headers.get("Content-Length", "")
+        if cl:
+            try:
+                declared = int(cl)
+            except ValueError:
+                declared = 0
+            if declared > MAX_UPLOAD:
+                self.close_connection = True
+                self._json(413, {"error": "file too large (max 52,428,800 B = 50 MiB)"})
+                return
         try:
             order_id, printer, job_seq, stl_bytes, stl_name = self._read_upload()
         except ValueError as e:
+            self.close_connection = True
             self._json(400, {"error": str(e)})
             return
 
@@ -204,7 +222,8 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("Content-Length must be an integer")
         if cl < 0:
             raise ValueError("Content-Length must be positive")
-        p = MultipartParser(self.headers, io.BytesIO(self.rfile.read(cl)))
+        p = MultipartParser(self.headers, io.BytesIO(self.rfile.read(cl)),
+                            max_bytes=MAX_UPLOAD)
         order_id = p.field("order_id").strip()
         printer = p.field("printer").strip()
         job_seq_s = p.field("job_seq", "0").strip()

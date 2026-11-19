@@ -151,6 +151,14 @@ def cmd_decode_stl(args) -> int:
     if order_id is None and manifest is not None:
         order_id = manifest.get("order_id") or None
 
+    # Risk-table mitigation: when the manifest actually contributed the
+    # order_id or the amplitude, echo which file was used so a caller
+    # can never wonder whether auto-detection silently kicked in.
+    if manifest is not None and (
+            (args.amplitude is None and manifest_amplitude is not None)
+            or (args.order_id is None and order_id is not None)):
+        print(f"manifest: {manifest_path}", file=sys.stderr)
+
     candidates: Optional[List[str]] = None
     if args.candidates:
         candidates = [c.strip() for c in args.candidates.split(",") if c.strip()]

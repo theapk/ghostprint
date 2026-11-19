@@ -90,6 +90,8 @@ def test_cli_verify_master_tagged_sidecar_only(tmp_path):
     verify = _cli_run("verify", str(master), str(tagged), cwd=tmp_path)
     assert verify.returncode == 0, f"verify stderr={verify.stderr}"
     assert "✅ L2 match: order_id=ORDER-SC-1" in verify.stdout
+    # Manifest actually contributed the order_id → its path is echoed.
+    assert str(sidecar) in verify.stderr and "manifest:" in verify.stderr
 
     # Negative control: re-key the sidecar to the master path — discovery
     # must not find it (it keys on the TAGGED path at this HEAD).

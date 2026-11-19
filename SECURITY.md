@@ -19,7 +19,7 @@ a reproduction or PoC, and the impact you see.
 - **This repository** (`github.com/theapk/ghostprint`): `tag-print.py`,
   `verify-print.py`, the `src/ghostprint` CLI, and the local web tooling in
   `landing/`.
-- **Hosted version** (`ghostprint.com`): the drag-drop web tool and the paid
+- **Hosted version** (`ghostprint.theapk.com`): the drag-drop web tool and the paid
   API.
 
 ## Watermark-defeat research

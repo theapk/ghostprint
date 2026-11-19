@@ -8,12 +8,11 @@ Usage:
       [--no-l1] [--no-l2] [--amplitude 0.012]
 
 Layers (both on by default):
-  L1: G-code micro-watermark. If a --sliced-gcode FILE.gcode is given
-      (or a slicer is configured via --slicer), we splice the watermark
-      into the produced G-code and emit it next to the STL.
-      Otherwise the encoder still emits a watermarked G-code that wraps
-      a trivial "park-and-home" sequence, suitable for downstream
-      re-slicing without losing the watermark.
+  L1: G-code micro-watermark. Only when --sliced-gcode FILE.gcode is
+      given (splice the watermark into an existing slice) or
+      --emit-gcode is passed (standalone watermarked G-code next to
+      the STL). With neither flag, L1 is skipped (stl + manifest only) —
+      L1 can only be recovered from a G-code file, never the STL.
   L2: Geometric steganography. Writes OUTPUT.stl with vertex
       perturbations of ±amplitude mm driven by the order_id hash.
 

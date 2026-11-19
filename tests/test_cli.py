@@ -109,6 +109,24 @@ def test_cli_verify_flags_first_passthrough_rc2(tmp_path):
     assert r.stderr.strip()  # argparse usage/error text present
 
 
+def test_cli_verify_single_positional_flags_passthrough(tmp_path):
+    """Single-positional + flags: `verify tagged --order-id X` skips the
+    two-positional branch (rest[1] is a flag) and routes decode-stl
+    TAGGED --order-id X — suspect=tagged, sidecar discovery keyed on
+    tagged, L2 match prints (no master swap)."""
+    master = tmp_path / "master.stl"
+    _cube_stl(master)
+    tagged = tmp_path / "tagged.stl"
+    tag = _cli_run("tag", str(master), "--out", str(tagged),
+                   "--order-id", "ORDER-SP-1", "--printer", "ci-runner",
+                   "--job-seq", "5", cwd=tmp_path)
+    assert tag.returncode == 0, f"tag stderr={tag.stderr}"
+    verify = _cli_run("verify", str(tagged), "--order-id", "ORDER-SP-1",
+                      cwd=tmp_path)
+    assert verify.returncode == 0, f"verify stderr={verify.stderr}"
+    assert "✅ L2 match: order_id=ORDER-SP-1" in verify.stdout
+
+
 def test_cli_core_shim_reexports_same_objects():
     """ghostprint_core shim must re-export the SAME objects as
     ghostprint.core (no duplicated definitions)."""

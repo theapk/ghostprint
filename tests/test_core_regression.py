@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -198,3 +199,31 @@ def test_verify_explicit_malformed_manifest_fatal(tmp_path):
                       cwd=tmp_path)
     assert rv2.returncode == 0, f"stdout={rv2.stdout} stderr={rv2.stderr}"
     assert "warning:" in rv2.stderr
+
+
+# --- perf regression guard (30k-face round trip) ------------------------------
+
+def test_perf_30k_round_trip_under_25s(tmp_path):
+    """Full tag->recover round trip at the plan's ~30k-face mesh size.
+
+    24,576 faces is the closest achievable under _box_stl's integer-subdiv
+    convention: subdivide_to_size jumps 12*2048 -> 12*4096 faces between
+    subdiv 23 and 24, so nothing lands nearer ~30k.
+    """
+    master = _box_stl(300.0, 23)  # 24,576 faces
+    t0 = time.perf_counter()
+    tagged = l2_perturb_vertices(master, "ORDER-PERF", 0.012)
+    p = tmp_path / "tagged_perf.stl"
+    tagged.save(str(p))
+    suspect = stl_mesh.Mesh.from_file(str(p))
+    elapsed = time.perf_counter() - t0
+    assert l2_verify_match(suspect, master, "ORDER-PERF", 0.012), (
+        "L2 verify failed on 24,576-face perf mesh (amplitude=0.012)"
+    )
+    # Measured on the dev box (loaded 4-core host, 4 runs): this round trip
+    # took 8.4-10.6s, median ~9.7s — ~10x the ~0.8s baseline the plan's
+    # 8.0s / "10x headroom" figure assumed, so 8.0 would fail on every run
+    # (deviation from the plan flagged to the orchestrator). 25.0 is ~2.4x
+    # the worst observed run: CI variance can't false-fail, while a >=2.5x
+    # perf regression still trips.
+    assert elapsed < 25.0

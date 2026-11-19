@@ -7,6 +7,7 @@ against a small STL built in tmp_path.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -65,3 +66,32 @@ def test_sliced_gcode_input_preserved(tmp_path):
     assert "; GP1:" in text, "no GP1 line in watermark block"
     # 3. The input content was spliced into (not replaced).
     assert "; original sliced gcode" in text
+
+
+def test_job_seq_out_of_range_fails_fast(tmp_path):
+    """--job-seq 99999999 (exceeds the 24-bit field) must fail fast with a
+    range error before the STL is ever loaded — no output STL is written."""
+    master = tmp_path / "master.stl"
+    _cube_stl(master)
+    out = tmp_path / "out.stl"
+    r = _run_tag(str(master), "--out", str(out), "--order-id", "ORDER-Y",
+                 "--printer", "printer-b", "--job-seq", "99999999",
+                 cwd=tmp_path)
+    assert r.returncode == 2, f"stdout={r.stdout} stderr={r.stderr}"
+    assert "range" in r.stderr, f"stderr lacks range note: {r.stderr}"
+    # Validation happens BEFORE the STL is loaded: no output artifacts.
+    assert not os.path.exists(str(out)), "out.stl written despite invalid job-seq"
+    assert not os.path.exists(str(out) + ".manifest.json")
+
+
+def test_job_seq_omitted_warns_timestamp(tmp_path):
+    """Omitting --job-seq must print one stderr warning noting job_seq
+    echoes the tag timestamp."""
+    master = tmp_path / "master.stl"
+    _cube_stl(master)
+    out = tmp_path / "out.stl"
+    r = _run_tag(str(master), "--out", str(out), "--order-id", "ORDER-Y",
+                 "--printer", "printer-b", cwd=tmp_path)
+    assert r.returncode == 0, f"tag failed: {r.stderr}"
+    assert "timestamp" in r.stderr
+    assert os.path.exists(str(out))

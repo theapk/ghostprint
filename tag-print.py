@@ -98,6 +98,12 @@ def main() -> int:
     ap.add_argument("--ts", type=int, default=None, help="override timestamp (unix seconds)")
     args = ap.parse_args()
 
+    # Validate --job-seq BEFORE anything else touches the STL (fail fast:
+    # it must fit the 24-bit L1 wire field, see l1_encode_payload).
+    if args.job_seq is not None and not (0 <= args.job_seq < (1 << 24)):
+        ap.error(f"--job-seq {args.job_seq} outside the valid range "
+                 f"[0, {(1 << 24) - 1}] (24-bit L1 field)")
+
     if args.no_l1 and args.no_l2:
         print("error: both layers disabled — nothing to do", file=sys.stderr)
         return 2
@@ -113,7 +119,15 @@ def main() -> int:
         return 2
 
     printer_id = _hash_printer_id(args.printer)
-    job_seq = args.job_seq if args.job_seq is not None else (int(time.time()) & 0xFFFFFF)
+    if args.job_seq is None:
+        print(
+            "warning: --job-seq omitted; job_seq will echo the tag timestamp "
+            "(& 0xFFFFFF) — tags written in the same second encode duplicate values",
+            file=sys.stderr,
+        )
+        job_seq = int(time.time()) & 0xFFFFFF
+    else:
+        job_seq = args.job_seq
     ts_unix = args.ts if args.ts is not None else int(time.time())
 
     # --- L2: geometric stego ---

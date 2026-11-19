@@ -64,6 +64,32 @@ def _load_multipart() -> Any:
 MultipartParser = _load_multipart()
 
 
+def _load_limiter() -> Any:
+    """Load RATE from landing/limiter.py by absolute path, same rationale
+    as _load_multipart (serve.py also runs as `python3 landing/serve.py`,
+    where sys.path[0] is landing/ and a plain `from landing.limiter
+    import ...` would not resolve — spec_from_file_location never
+    consults sys.path). Fails clean at boot if the file is missing.
+
+    If a module already registered as `landing.limiter` (e.g. a test
+    imported it via the package first), reuse it so the whole process
+    shares ONE RATE window."""
+    existing = sys.modules.get("landing.limiter")
+    if existing is not None and hasattr(existing, "RATE"):
+        return existing.RATE
+    spec = importlib.util.spec_from_file_location(
+        "landing.limiter", LANDING_DIR / "limiter.py")
+    if spec is None or spec.loader is None:
+        sys.exit(f"cannot load {LANDING_DIR / 'limiter.py'}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["landing.limiter"] = mod
+    spec.loader.exec_module(mod)
+    return mod.RATE
+
+
+RATE: Any = _load_limiter()
+
+
 _STRIPE_CFG_FALLBACK = {"plans": {}, "currency": "usd",
                         "success_url": "", "cancel_url": "",
                         "env_var": "STRIPE_SECRET_KEY"}
@@ -175,6 +201,18 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path != "/api/tag":
             self.send_error(404, "use POST /api/tag")
+            return
+        # FIRST gate: per-IP rate limit (10 accepted POSTs / 60 s), before
+        # the chunked/size gates so a flood never reaches body parsing.
+        # Keyed on the raw socket peer `self.client_address[0]` only —
+        # never X-Forwarded-For / X-Real-IP: those are client-supplied and
+        # spoofable. Caveat: behind a reverse proxy the peer is the proxy's
+        # IP — in the prod Caddy deployment the edge must do its own
+        # per-client rate limiting; this gate is the direct-exposure
+        # defense, not the edge tier.
+        if not RATE.allow(self.client_address[0]):
+            self.close_connection = True
+            self._json(429, {"error": "rate limit (10 POST/min per IP)"})
             return
         if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
             self.close_connection = True

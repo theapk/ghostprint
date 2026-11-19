@@ -55,6 +55,11 @@ def _verify_argv(rest: List[str]) -> List[str]:
     """
     if rest and rest[0] in _VERIFY_SUBVERBS:
         return rest
+    if rest and rest[0].startswith("-"):
+        # Flags-first ordering (--amplitude X / --manifest m.json BEFORE the
+        # positionals) can't be translated positionally: pass through and let
+        # decode-stl's argparse produce its clean required-argument error.
+        return ["decode-stl"] + rest
     if len(rest) >= 2 and not rest[1].startswith("-"):
         # decode-stl spells the master as --master.
         return ["decode-stl", rest[0], "--master", rest[1]] + rest[2:]

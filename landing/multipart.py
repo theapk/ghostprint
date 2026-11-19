@@ -15,8 +15,9 @@ class MultipartParser:
         if len(self._buf) > max_bytes:
             raise ValueError(f"payload exceeds cap {max_bytes} bytes")
         self._parts = [p for p in self._buf.split(self._boundary) if p.strip(b"\r\n-")]
+        self._fields = self._parse_fields()
 
-    def _fields(self):
+    def _parse_fields(self):
         out = {}
         for part in self._parts:
             if b"\r\n\r\n" not in part: continue
@@ -31,15 +32,15 @@ class MultipartParser:
         return out
 
     def field(self, name, default=""):
-        v = self._fields().get(name)
+        v = self._fields.get(name)
         return v[0].decode("utf-8", "replace") if v else default
 
     def file_name(self):
-        v = self._fields().get("stl")
+        v = self._fields.get("stl")
         return v[1] if v else None
 
     def file_bytes(self):
-        v = self._fields().get("stl")
+        v = self._fields.get("stl")
         if not v: raise ValueError("missing stl file")
         if not v[1]: raise ValueError("stl part has no filename")
         return v[0]

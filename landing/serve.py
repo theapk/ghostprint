@@ -14,7 +14,7 @@ Then `curl -F stl=@master.stl http://127.0.0.1:8080/api/tag
 The landing page (index.html) does the same upload from the browser via
 XMLHttpRequest. No JS framework — just fetch().
 
-Why no Flask/FastAPI: scrap-bin. stdlib + cgi + subprocess is enough for
+Why no Flask/FastAPI: scrap-bin. stdlib + subprocess is enough for
 a v0.1 drag-drop page. Move to FastAPI in v0.2 when we add auth + Stripe.
 """
 from __future__ import annotations
@@ -64,19 +64,20 @@ def _load_multipart() -> Any:
 MultipartParser = _load_multipart()
 
 
+_STRIPE_CFG_FALLBACK = {"plans": {}, "currency": "usd",
+                        "success_url": "", "cancel_url": "",
+                        "env_var": "STRIPE_SECRET_KEY"}
+
+
 def _load_stripe_config() -> dict:
     """Read stripe_config.json once per process. Cached. Falls back to a
     minimal config if the file is missing (e.g. partial deploy)."""
     if not STRIPE_CONFIG.is_file():
-        return {"plans": {}, "currency": "usd",
-                "success_url": "", "cancel_url": "",
-                "env_var": "STRIPE_SECRET_KEY"}
+        return dict(_STRIPE_CFG_FALLBACK)
     try:
         return json.loads(STRIPE_CONFIG.read_text())
     except (json.JSONDecodeError, OSError):
-        return {"plans": {}, "currency": "usd",
-                "success_url": "", "cancel_url": "",
-                "env_var": "STRIPE_SECRET_KEY"}
+        return dict(_STRIPE_CFG_FALLBACK)
 
 
 STRIPE_CFG = _load_stripe_config()
@@ -138,8 +139,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         # Serve any other static file from the landing dir if it exists
         # (images, css, future assets). Refuses path traversal.
-        from urllib.parse import unquote
-        rel = unquote(self.path.lstrip("/"))
+        rel = urllib.parse.unquote(self.path.lstrip("/"))
         if rel and not rel.startswith(("..", "/")):
             asset = (LANDING_DIR / rel).resolve()
             if LANDING_DIR.resolve() in asset.parents and asset.is_file():
@@ -199,8 +199,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             # F-01: the client-controlled filename must never join a server
             # path. basename-only + explicit junk-name fallback.
-            import os as _os
-            safe_name = _os.path.basename(stl_name or "").strip() or "input.stl"
+            safe_name = os.path.basename(stl_name or "").strip() or "input.stl"
             if safe_name in (".", ".."):
                 safe_name = "input.stl"
             in_stl = work / safe_name
@@ -277,8 +276,7 @@ class Handler(BaseHTTPRequestHandler):
             400: {"error": "..."}                       — bad query
             503: {"error": "...", "vault_entry": "..."}  — key not configured
         """
-        from urllib.parse import urlparse, parse_qs
-        qs = parse_qs(urlparse(self.path).query)
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         plan = (qs.get("plan") or [""])[0].strip().lower()
         if plan not in STRIPE_CFG.get("plans", {}):
             self._json(400, {
@@ -373,7 +371,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _b64(b: bytes) -> str:
-    import base64
     return base64.b64encode(b).decode("ascii")
 
 

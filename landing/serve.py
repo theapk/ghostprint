@@ -83,6 +83,15 @@ def _load_stripe_config() -> dict:
 STRIPE_CFG = _load_stripe_config()
 
 
+def _limits():
+    """preexec_fn for the tag-print.py child: cap address space at 1.5 GiB
+    and CPU at 60 s so a pathological STL can't eat unbounded memory/CPU
+    on the server. Runs in the child only (after fork, before exec)."""
+    import resource
+    resource.setrlimit(resource.RLIMIT_AS, (1_500_000_000, 1_500_000_000))
+    resource.setrlimit(resource.RLIMIT_CPU, (60, 60))
+
+
 def _run_tag(stl_path: Path, order_id: str, printer: str, job_seq: int,
              out_dir: Path) -> dict:
     """Invoke tag-print.py against stl_path. Returns manifest dict on
@@ -100,7 +109,8 @@ def _run_tag(stl_path: Path, order_id: str, printer: str, job_seq: int,
         "--emit-gcode",
         "--manifest", str(manifest),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120,
+                          preexec_fn=_limits)
     if proc.returncode != 0:
         raise RuntimeError(f"tag-print.py failed: {proc.stderr.strip()}")
     return json.loads(manifest.read_text())

@@ -5,6 +5,7 @@
 
 [![PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20NC-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)]()
+[![tests](https://github.com/theapk/ghostprint/actions/workflows/test.yml/badge.svg)](https://github.com/theapk/ghostprint/actions/workflows/test.yml)
 
 ---
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import shutil
 import socket
 import struct
 import subprocess
@@ -258,15 +259,19 @@ _SECURITY_HEADERS = {
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin",
 }
-_CSP_PARTS = ("default-src 'none'", "frame-ancestors 'none'", "base-uri 'none'")
+# Wave 6: the CSP must be prod's string VERBATIM (the site's analytics
+# host anal.vivaed.com must stay allowed or prod analytics dies silently).
+_CSP_PROD = ("default-src 'none'; style-src 'self' 'unsafe-inline'; "
+             "script-src 'self' 'unsafe-inline' https://anal.vivaed.com; "
+             "img-src 'self'; connect-src 'self' https://anal.vivaed.com; "
+             "frame-ancestors 'none'; base-uri 'none'")
 
 
 def _assert_response_hardening(headers) -> None:
     for k, v in _SECURITY_HEADERS.items():
         assert headers[k] == v, f"missing/mismatched {k}: {headers[k]!r}"
     csp = headers["Content-Security-Policy"]
-    for part in _CSP_PARTS:
-        assert part in csp, f"CSP missing {part!r}: {csp!r}"
+    assert csp == _CSP_PROD, f"CSP must equal prod string verbatim: {csp!r}"
     server_hdr = headers.get("Server", "")
     assert "Python" not in server_hdr, f"python version leak: {server_hdr!r}"
     assert server_hdr.startswith("ghostprint"), server_hdr
@@ -288,7 +293,7 @@ def test_security_headers_on_post_api_tag(server):
                            filename="x.stl", boundary=boundary)
     req = urllib.request.Request(
         f"{server}/api/tag", data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        headers={"Content-Type": "multipart/form-data; boundary={}".format(boundary)},
         method="POST")
     try:
         urllib.request.urlopen(req, timeout=5)
@@ -296,3 +301,178 @@ def test_security_headers_on_post_api_tag(server):
     except urllib.error.HTTPError as e:
         assert e.code == 400
         _assert_response_hardening(e.headers)
+
+
+# =========================================================================
+# Wave 6 — prod-hardening port coverage: CSP verbatim, edge keying, strict
+# STL sniff, Cache-Control split (image vs everything else).
+# =========================================================================
+
+# ---------- in-process handler harness ------------------------------------
+# Mirrors test_limiter.py's `import landing.serve` style. The subprocess
+# fixture cannot be monkeypatched, so behaviors that depend on module
+# globals (EDGE_IP, RATE, LANDING_DIR) are driven through a real
+# ThreadingHTTPServer running the imported Handler in this process.
+
+@pytest.fixture()
+def inproc_serve():
+    sys.path.insert(0, str(REPO))
+    import landing.serve as serve_mod
+    from http.server import ThreadingHTTPServer
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), serve_mod.Handler)
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        yield serve_mod, f"http://127.0.0.1:{srv.server_address[1]}"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        t.join(timeout=5)
+
+
+def _png_bytes() -> bytes:
+    """A real 1x1 RGBA PNG, built with zlib/struct (no repo writes)."""
+    import zlib
+
+    def chunk(typ: bytes, data: bytes) -> bytes:
+        return (struct.pack(">I", len(data)) + typ + data
+                + struct.pack(">I", zlib.crc32(typ + data) & 0xFFFFFFFF))
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0)  # 1x1, 8-bit, RGBA
+    idat = zlib.compress(b"\x00\x00\x00\x00\x00")        # filter 0 + pixel
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
+            + chunk(b"IDAT", idat) + chunk(b"IEND", b""))
+
+
+# ---------- (a) CSP verbatim / (d) Cache-Control split --------------------
+
+def test_cache_control_no_store_single_header_on_html(server):
+    """HTML (+ API + non-image assets) go out with exactly ONE Cache-Control
+    header and it must be no-store (prod semantics)."""
+    import urllib.request
+    with urllib.request.urlopen(f"{server}/", timeout=5) as r:
+        assert r.status == 200
+        assert r.headers.get_all("Cache-Control") == ["no-store"]
+
+
+def test_image_asset_gets_single_cacheable_cc_only(inproc_serve, monkeypatch, tmp_path):
+    """Image assets: Cache-Control 'public, max-age=86400' as the ONLY
+    Cache-Control header, still with the full security header set.
+    Serves a tmp landing copy — the repo tree is never written."""
+    serve_mod, base = inproc_serve
+    (tmp_path / "icon.png").write_bytes(_png_bytes())
+    monkeypatch.setattr(serve_mod, "LANDING_DIR", Path(tmp_path))
+    import urllib.request
+    with urllib.request.urlopen(f"{base}/icon.png", timeout=5) as r:
+        assert r.status == 200
+        assert r.headers["Content-Type"] == "image/png"
+        cc = r.headers.get_all("Cache-Control")
+        assert cc == ["public, max-age=86400"], cc
+        _assert_response_hardening(r.headers)
+
+
+# ---------- (b) rate-limiter edge keying ----------------------------------
+
+def _post_bogus_content_type(base: str, spoofed: dict) -> None:
+    """POST /api/tag with a bogus Content-Type. The limiter call happens
+    BEFORE any body parsing, so RATE records the key even though the
+    request 400s right after — perfect for asserting the key."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(
+        f"{base}/api/tag", data=b"x=1",
+        headers={"Content-Type": "application/json", **spoofed})
+    try:
+        urllib.request.urlopen(req, timeout=5)
+        raise AssertionError("expected 400 for bogus content type")
+    except urllib.error.HTTPError as e:
+        assert e.code == 400
+
+
+def test_rate_keying_nonedge_peer_ignores_spoofed_headers(inproc_serve, monkeypatch):
+    """A peer that is NOT the edge keys on its socket IP: X-Real-IP must be
+    ignored (spoofable), and X-Forwarded-For must never be consulted."""
+    serve_mod, base = inproc_serve
+    from landing.limiter import SlidingWindow
+    fresh = SlidingWindow(10, 60.0)
+    monkeypatch.setattr(serve_mod, "RATE", fresh)  # EDGE_IP stays 10.1.1.7
+    _post_bogus_content_type(base, {"X-Real-IP": "9.9.9.9",
+                                    "X-Forwarded-For": "8.8.8.8"})
+    with fresh._lk:
+        keys = list(fresh._hits)
+    assert keys == ["127.0.0.1"], (
+        f"non-edge peer must key on socket IP, got {keys}")
+
+def test_rate_keying_edge_peer_keys_on_x_real_ip(inproc_serve, monkeypatch):
+    """A peer that IS the edge keys on X-Real-IP; X-Forwarded-For set to a
+    different value must have no effect (never trusted)."""
+    serve_mod, base = inproc_serve
+    from landing.limiter import SlidingWindow
+    fresh = SlidingWindow(10, 60.0)
+    monkeypatch.setattr(serve_mod, "RATE", fresh)
+    monkeypatch.setattr(serve_mod, "EDGE_IP", "127.0.0.1")  # sim: peer == edge
+    _post_bogus_content_type(base, {"X-Real-IP": "7.7.7.7",
+                                    "X-Forwarded-For": "8.8.8.8"})
+    with fresh._lk:
+        keys = list(fresh._hits)
+    assert keys == ["7.7.7.7"], (
+        f"edge peer must key on X-Real-IP, got {keys}")
+
+
+# ---------- (c) strict STL sniff ------------------------------------------
+
+def _post_stl(server, stl_bytes: bytes, filename: str = "x.stl"):
+    """POST stl_bytes to /api/tag via the subprocess server. Returns
+    (status_code, json_body_or_None)."""
+    import urllib.error
+    import urllib.request
+    boundary = "----gp-test-boundary-x7y9z"
+    body = _multipart_body("ORDER-SNIFF-01", "bambucco-1", job_seq="1",
+                           stl=stl_bytes, filename=filename, boundary=boundary)
+    req = urllib.request.Request(
+        f"{server}/api/tag", data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def test_stl_sniff_binary_cube_accepted(server):
+    """Valid binary STL (80B header + count field matching body) → 200."""
+    code, body = _post_stl(server, _make_binary_stl())
+    assert code == 200, body
+    assert body["manifest"]["order_id"] == "ORDER-SNIFF-01"
+    assert body["tagged_stl_b64"]
+
+
+def test_stl_sniff_binary_count_mismatch_rejected(server):
+    """80 junk header bytes (no 'solid'), triangle count = 1 but no body →
+    (85-84)//50 == 0 ≠ 1 → must 400 (old length-guess sniff, len>84, would
+    have accepted this)."""
+    junk = b"X" * 80 + struct.pack("<I", 1) + b"Q"
+    code, body = _post_stl(server, junk)
+    assert code == 400, body
+    assert "STL" in body["error"]
+
+
+def test_stl_sniff_ascii_cube_accepted(server):
+    """solid + endsolid ASCII cube → passes the structural sniff → 200."""
+    import stl
+    tmp = Path(tempfile.mkdtemp(prefix="gp-ascii-"))
+    try:
+        src = tmp / "cube.stl"
+        src.write_bytes(_make_binary_stl())
+        mesh = stl.mesh.Mesh.from_file(str(src))
+        out = tmp / "cube-ascii.stl"
+        mesh.save(str(out), mode=stl.Mode.ASCII)
+        ascii_bytes = out.read_bytes()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    # Sniff-relevant sanity: prod check must see it as ASCII.
+    assert b"solid" in ascii_bytes[:80].lower() and b"endsolid" in ascii_bytes
+    code, body = _post_stl(server, ascii_bytes, filename="cube-ascii.stl")
+    assert code == 200, body
+    assert body["manifest"]["order_id"] == "ORDER-SNIFF-01"
+    assert body["tagged_stl_b64"]

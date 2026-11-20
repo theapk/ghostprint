@@ -26,6 +26,7 @@ import json
 import os
 import resource
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -43,6 +44,7 @@ ROOT = Path(__file__).resolve().parent.parent  # ghostprint repo root
 LANDING_DIR = Path(__file__).resolve().parent
 STRIPE_CONFIG = LANDING_DIR / "stripe_config.json"
 MAX_UPLOAD = 52_428_800  # 50 MiB — hard cap on upload payloads
+EDGE_IP = "10.1.1.7"  # DHS host: Caddy edge traffic arrives via Tailscale from 10.1.1.7
 
 
 def _load_multipart() -> Any:
@@ -152,16 +154,35 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- response hardening (single choke-point: every response, incl.
     # send_error paths, goes through end_headers) --------------------------
+    def _security_headers(self, cache_ok=False):
+        """Baseline header posture on every response (F-05).
+
+        cache_ok=True (image-asset branch) swaps Cache-Control for the
+        media-cacheable value; exactly ONE Cache-Control header goes out
+        per response either way (prod semantics).
+        """
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy",
+                         "default-src 'none'; style-src 'self' 'unsafe-inline'; "
+                         "script-src 'self' 'unsafe-inline' https://anal.vivaed.com; "
+                         "img-src 'self'; connect-src 'self' https://anal.vivaed.com; "
+                         "frame-ancestors 'none'; base-uri 'none'")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        self.send_header("Cache-Control",
+                         "no-store" if not cache_ok else "public, max-age=86400")
+
+    def send_response(self, code, message=None):
+        self._sec_headers_done = False
+        super().send_response(code, message)
+
     def end_headers(self):
-        for k, v in (
-            ("X-Content-Type-Options", "nosniff"),
-            ("X-Frame-Options", "DENY"),
-            ("Referrer-Policy", "strict-origin-when-cross-origin"),
-            ("Content-Security-Policy",
-             "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
-             "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"),
-        ):
-            self.send_header(k, v)
+        # F-05: guarantee one set of security headers on EVERY response,
+        # including send_error() paths we don't call explicitly.
+        if not getattr(self, "_sec_headers_done", False):
+            self._sec_headers_done = True
+            self._security_headers()
         super().end_headers()
 
     # ---- static landing page --------------------------------------------
@@ -206,11 +227,18 @@ class Handler(BaseHTTPRequestHandler):
                 import mimetypes
                 mime = mimetypes.guess_type(str(asset))[0] or "application/octet-stream"
                 data = asset.read_bytes()
+                if mime and mime.startswith("image/"):
+                    self.send_response(200)
+                    self.send_header("Content-Type", mime)
+                    self.send_header("Content-Length", str(len(data)))
+                    self._sec_headers_done = True  # cacheable variant, one CC header
+                    self._security_headers(cache_ok=True)
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
                 self.send_response(200)
                 self.send_header("Content-Type", mime)
                 self.send_header("Content-Length", str(len(data)))
-                # Long cache for static assets; index.html stays no-cache via the / branch above
-                self.send_header("Cache-Control", "public, max-age=86400")
                 self.end_headers()
                 self.wfile.write(data)
                 return
@@ -229,13 +257,17 @@ class Handler(BaseHTTPRequestHandler):
         # FIRST gate: per-IP rate limit (10 POST attempts / 60 s; rejects
         # count too), before
         # the chunked/size gates so a flood never reaches body parsing.
-        # Keyed on the raw socket peer `self.client_address[0]` only —
-        # never X-Forwarded-For / X-Real-IP: those are client-supplied and
-        # spoofable. Caveat: behind a reverse proxy the peer is the proxy's
-        # IP — in the prod Caddy deployment the edge must do its own
-        # per-client rate limiting; this gate is the direct-exposure
-        # defense, not the edge tier.
-        if not RATE.allow(self.client_address[0]):
+        # Trust model: key on X-Real-IP ONLY when the socket peer is the
+        # Caddy edge (EDGE_IP 10.1.1.7, Tailscale). All other peers key on
+        # their own socket IP — headers from any other peer are
+        # client-supplied and spoofable, so never consulted.
+        # X-Forwarded-For is never trusted.
+        peer = self.client_address[0]
+        if peer == EDGE_IP:
+            ip = self.headers.get("X-Real-IP") or peer
+        else:
+            ip = peer
+        if not RATE.allow(ip):
             self.close_connection = True
             self._json(429, {"error": "rate limit (10 POST/min per IP)"})
             return
@@ -263,8 +295,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": str(e)})
             return
 
-        # Sanity: STL files start with `solid` (ASCII) or 80-byte header (binary).
-        if not (stl_bytes[:5].lower() == b"solid" or len(stl_bytes) > 84):
+        # F-02: real structural sniff (ASCII or binary STL) — not a length guess.
+        d = stl_bytes
+        is_ascii = b"solid" in d[:80].lower() and b"endsolid" in d
+        is_bin = len(d) >= 84 and struct.unpack("<I", d[80:84])[0] == (len(d) - 84) // 50
+        if not (is_ascii or is_bin):
             self._json(400, {"error": "file does not look like an STL"})
             return
 

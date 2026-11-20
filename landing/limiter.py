@@ -3,15 +3,19 @@
 
 Sliding-window counter keyed by client IP: 10 POST attempts per 60 s
 window (rejected 400s count too — the point is costing attempts, not
-accepting them), thread-safe, stdlib only. Keys are the raw socket peer
-address — never X-Forwarded-For / X-Real-IP (client-supplied, trivially
-spoofable; the whole point is to cost an attacker something, so the key
-must be something the attacker does not choose).
+accepting them), thread-safe, stdlib only. Keying is a serve.py decision:
+this class is key-agnostic (any hashable string). serve.py keys on the
+raw socket peer, EXCEPT when that peer is the Caddy edge (EDGE_IP,
+Tailscale) — there it keys on the X-Real-IP the edge set at the front
+door. X-Forwarded-For is never consulted (client-supplied, trivially
+spoofable); a non-edge client cannot choose its key.
 
 Memory is bounded: tracked keys are hard-capped (scanner floods of
 distinct IPs get swept first for expired windows, then evicted oldest).
-Behind Caddy the container peer is Caddy's IP — rate-limit at the edge
-for real per-client fairness; this limiter is a self-host backstop.
+Behind Caddy the container peer is the edge's IP — serve.py therefore
+keys edge traffic on X-Real-IP for real per-client fairness. Rate
+limiting at the edge stays the outer tier; this limiter is the
+in-process backstop.
 """
 from __future__ import annotations
 

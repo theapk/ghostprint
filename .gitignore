@@ -17,3 +17,6 @@ landing/stripe_config.json
 marketing/
 posts/
 runs/
+build/
+dist/
+.venv-publish/

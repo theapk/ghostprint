@@ -28,7 +28,13 @@ Later, if a suspect part shows up, drop the original STL back in and ghostprint 
 
 ## Install
 
-Not on PyPI yet. Install from the repo:
+[![PyPI](https://img.shields.io/pypi/v/theapk-ghostprint)](https://pypi.org/project/theapk-ghostprint/)
+
+```bash
+pip install theapk-ghostprint
+```
+
+Or from the repo:
 
 ```bash
 git clone https://github.com/theapk/ghostprint.git
